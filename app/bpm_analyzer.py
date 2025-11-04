@@ -80,48 +80,91 @@ def calculate_bpm(file_path, save_cache=True):
 
     try:
         import librosa
-        from librosa.feature.rhythm import tempo as rhythm_tempo
+        try:
+            y, sr = librosa.load(file_path, sr=22050)
+        except Exception as load_error:
+            print(f"[ERROR] Failed to load audio file {file_path}: {load_error}")
+            return {"file": fname, "bpm": None, "error": f"Failed to load audio file: {str(load_error)}"}
 
-        y, sr = librosa.load(file_path, sr=44100)
-        y_processed = preprocess_audio_for_bpm(y, sr)
+        if y.ndim > 1:
+            y = librosa.to_mono(y)
+        y = librosa.util.normalize(y)
 
-        onset_env = librosa.onset.onset_strength(y=y_processed, sr=sr)
+        y = librosa.effects.preemphasis(y, coef=0.97)
+
         tempos = []
 
-        tempo_configs = [
-            (512, 4.0), (512, 8.0), (512, 2.0), (1024, 4.0),
-            (256, 4.0), (256, 8.0), (1024, 2.0), (128, 4.0), (2048, 4.0)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+
+        configs = [
+            (512, 4.0),
+            (1024, 2.0),
+            (256, 8.0),
+            (512, 2.0),
+            (1024, 4.0),
         ]
-        for hop, ac_size in tempo_configs:
+
+        for hop_length, ac_size in configs:
             try:
-                t = rhythm_tempo(onset_envelope=onset_env, sr=sr, hop_length=hop, ac_size=ac_size, max_tempo=300.0)
-                tempos.append(t.item())
-            except:
+                tempo = librosa.beat.tempo(
+                    y=y,
+                    sr=sr,
+                    hop_length=hop_length,
+                    ac_size=ac_size,
+                    max_tempo=300.0,
+                    offset=0.0
+                )
+                tempos.extend([tempo[0]] * 2)
+            except Exception as e:
+                print(f"[WARNING] Tempo calculation failed for config {hop_length}, {ac_size}: {e}")
                 continue
 
         try:
-            t1, _ = librosa.beat.beat_track(y=y, sr=sr)
-            tempos.append(t1.item())
-        except:
-            pass
+            tempo_alt, _ = librosa.beat.beat_track(y=y, sr=sr, hop_length=512)
+            tempos.append(tempo_alt)
+        except Exception as e:
+            print(f"[WARNING] beat_track failed: {e}")
+
         try:
-            t2, _ = librosa.beat.beat_track(y=y_processed, sr=sr)
-            tempos.append(t2.item())
-        except:
-            pass
+            tempo_ac = librosa.feature.tempo(
+                y=y,
+                sr=sr,
+                hop_length=512,
+                win_length=384
+            )
+            if tempo_ac is not None and len(tempo_ac) > 0:
+                tempos.extend(tempo_ac.flatten())
+        except Exception as e:
+            print(f"[WARNING] feature.tempo failed: {e}")
 
-        tempos = [t for t in tempos if 20 <= t <= 300]
-        bpm = int(round(np.median(tempos))) if tempos else 120
+        valid_tempos = [t for t in tempos if 40 <= t <= 250]
 
-        if bpm < 60 and bpm * 2 <= 200:
-            bpm *= 2
-        if bpm > 200 and bpm / 2 >= 60:
-            bpm = int(bpm / 2)
-        bpm = max(60, min(200, bpm))
+        if not valid_tempos:
+            bpm = 120
+        else:
+            bpm = np.median(valid_tempos)
+
+            if bpm < 60:
+                bpm *= 2
+            elif bpm > 180:
+                bpm /= 2
+
+            bpm = int(round(bpm))
+
+        try:
+            spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))
+            zero_crossing_rate = np.mean(librosa.feature.zero_crossing_rate(y))
+        except Exception as e:
+            print(f"[WARNING] Feature calculation failed, using basic BPM: {e}")
+        else:
+            if zero_crossing_rate > 0.1:
+                if 160 <= bpm <= 220:
+                    bpm = int(bpm / 2)
+
+        bpm = max(40, min(250, bpm))
 
         if save_cache:
             save_bpm_to_cache(file_path, bpm)
-            BPM_CACHE[fname] = bpm
 
         return {"file": fname, "bpm": bpm, "source": "calculated"}
 
