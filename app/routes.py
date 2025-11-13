@@ -44,7 +44,6 @@ def analyze_bpm():
             print("[ERROR] No audio data found in request")
             return jsonify({"error": "No audio file provided in the request"}), 400
 
-        # УБРАНО СОХРАНЕНИЕ КЭША НА СЕРВЕРЕ
         result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False)
 
         if os.path.exists(temp_path):
@@ -75,7 +74,6 @@ def analyze_bpm():
 
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
-    """Генерация барабанных нот для песни"""
     print("DEBUG: /generate_drums request received")
     print(f"DEBUG: Content-Type: {request.content_type}")
     print(f"DEBUG: Headers: {dict(request.headers)}")
@@ -84,12 +82,10 @@ def generate_drums():
     temp_path = None
 
     try:
-        # Получаем аудио как raw body
         audio_data = request.get_data()
         if not audio_data:
             return jsonify({"error": "No audio data received"}), 400
 
-        # Получаем параметры из заголовков
         bpm = request.headers.get("X-BPM")
         instrument_type = request.headers.get("X-Instrument", "drums")
         filename = request.headers.get("X-Filename", "uploaded_audio.mp3")
@@ -100,9 +96,7 @@ def generate_drums():
             except ValueError:
                 return jsonify({"error": "Invalid BPM value"}), 400
         else:
-            # Если BPM не передан, вычисляем его
             print("[DrumGen] BPM not provided in headers, calculating...")
-            # Для вычисления BPM нужно временно сохранить файл
             temp_path = os.path.join("temp_uploads", f"temp_for_bpm_{int(time.time())}.mp3")
             with open(temp_path, "wb") as f:
                 f.write(audio_data)
@@ -116,23 +110,18 @@ def generate_drums():
             bpm = bpm_result["bpm"]
             print(f"[DrumGen] Calculated BPM: {bpm}")
 
-        # Сохраняем аудио для обработки
+
         temp_path = os.path.join("temp_uploads", filename)
         with open(temp_path, "wb") as f:
             f.write(audio_data)
 
         print(f"[DrumGen] Processing {temp_path} with BPM: {bpm}, instrument: {instrument_type}")
 
-        # Генерируем барабанные ноты
         notes = drum_generator.generate_drums_notes(temp_path, bpm, lanes=4)
 
         if not notes:
             return jsonify({"error": "Failed to generate drum notes"}), 500
 
-        # УБРАНО СОХРАНЕНИЕ НОТ НА СЕРВЕРЕ
-        # drum_generator.save_drums_notes(notes, temp_path)
-
-        # Очищаем временный файл
         if os.path.exists(temp_path):
             os.remove(temp_path)
             print(f"[CLEANUP] Temporary file removed: {temp_path}")

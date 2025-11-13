@@ -61,7 +61,7 @@ def separate_audio_with_demucs(wav_path: str) -> Tuple[Optional[str], Optional[s
         print(f"[DrumGen] stderr: {e.stderr}")
         return None, None
     except FileNotFoundError:
-        print("[DrumGen] Demucs не установлен. Установите: pip install demucs")
+        print("[DrumGen] Demucs не установлен. Используем оригинальный файл без разделения.")
         return str(wav_path), None
     except Exception as e:
         print(f"[DrumGen] Ошибка разделения Demucs: {e}")
