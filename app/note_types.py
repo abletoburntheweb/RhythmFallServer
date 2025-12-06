@@ -1,6 +1,7 @@
 # app/note_types.py
 
 class NoteType:
+    """Базовый класс для типов нот"""
     KICK = "KickNote"
     SNARE = "SnareNote"
     DEFAULT = "DefaultNote"
@@ -8,6 +9,7 @@ class NoteType:
 
 
 def create_note(note_type, lane, time, length=None, hold_time=None):
+    """Создание словаря ноты для JSON"""
     note = {
         "type": note_type,
         "lane": lane,

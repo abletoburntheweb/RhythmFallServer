@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 import tempfile
 import os
 import base64
+import time
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator
 
@@ -74,6 +75,7 @@ def analyze_bpm():
 
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
+    """Генерация барабанных нот для песни"""
     print("DEBUG: /generate_drums request received")
     print(f"DEBUG: Content-Type: {request.content_type}")
     print(f"DEBUG: Headers: {dict(request.headers)}")
@@ -89,6 +91,20 @@ def generate_drums():
         bpm = request.headers.get("X-BPM")
         instrument_type = request.headers.get("X-Instrument", "drums")
         filename = request.headers.get("X-Filename", "uploaded_audio.mp3")
+
+        try:
+            lanes = int(request.headers.get("X-Lanes", "4"))
+            if lanes <= 0:
+                raise ValueError("Lanes must be positive")
+        except ValueError:
+            return jsonify({"error": "Invalid X-Lanes value, must be a positive integer"}), 400
+
+        try:
+            sync_tolerance = float(request.headers.get("X-Sync-Tolerance", "0.2"))
+            if sync_tolerance <= 0:
+                raise ValueError("Sync tolerance must be positive")
+        except ValueError:
+            return jsonify({"error": "Invalid X-Sync-Tolerance value, must be a positive number"}), 400
 
         if bpm:
             try:
@@ -110,14 +126,13 @@ def generate_drums():
             bpm = bpm_result["bpm"]
             print(f"[DrumGen] Calculated BPM: {bpm}")
 
-
         temp_path = os.path.join("temp_uploads", filename)
         with open(temp_path, "wb") as f:
             f.write(audio_data)
 
-        print(f"[DrumGen] Processing {temp_path} with BPM: {bpm}, instrument: {instrument_type}")
+        print(f"[DrumGen] Processing {temp_path} with BPM: {bpm}, instrument: {instrument_type}, lanes: {lanes}, sync_tolerance: {sync_tolerance}")
 
-        notes = drum_generator.generate_drums_notes(temp_path, bpm, lanes=4)
+        notes = drum_generator.generate_drums_notes(temp_path, bpm, lanes=lanes, sync_tolerance=sync_tolerance)
 
         if not notes:
             return jsonify({"error": "Failed to generate drum notes"}), 500
@@ -130,7 +145,7 @@ def generate_drums():
         return jsonify({
             "notes": notes,
             "bpm": bpm,
-            "lanes": 4,
+            "lanes": lanes,
             "instrument_type": instrument_type,
             "status": "success"
         })
