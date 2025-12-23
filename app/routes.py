@@ -132,6 +132,7 @@ def generate_drums():
 
         print(f"[DrumGen] Processing {temp_path} with BPM: {bpm}, instrument: {instrument_type}, lanes: {lanes}, sync_tolerance: {sync_tolerance}")
 
+
         notes = drum_generator.generate_drums_notes(temp_path, bpm, lanes=lanes, sync_tolerance=sync_tolerance)
 
         if not notes:
@@ -159,6 +160,7 @@ def generate_drums():
             os.remove(temp_path)
 
         return jsonify({"error": str(e)}), 500
+
 
 @bp.route("/generate_notes", methods=["POST"])
 def generate_notes():

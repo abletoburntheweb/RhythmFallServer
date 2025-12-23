@@ -1,4 +1,4 @@
-# app/routes.py
+# app/drum_generator.py
 import os
 import json
 import numpy as np
@@ -6,187 +6,19 @@ import random
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
-
 try:
     import librosa
-
     LIBROSA_AVAILABLE = True
 except ImportError:
     LIBROSA_AVAILABLE = False
-    librosa = None  
+    librosa = None
+
+
+from .audio_separator import detect_kick_snare_with_essentia
 
 NOTES_DIR = Path("songs") / "notes"
 
-KICK_FREQ_RANGE = (60, 120)
-SNARE_FREQ_RANGE = (200, 5000)
-KICK_SPECTRAL_CENTROID_THRESHOLD_PERCENTILE = 25
-SNARE_SPECTRAL_CENTROID_THRESHOLD_PERCENTILE = 75
-KICK_ZCR_THRESHOLD_PERCENTILE = 40
-SNARE_ZCR_THRESHOLD_PERCENTILE = 60
-SPECTRAL_ROLLOFF_THRESHOLD_PERCENTILE = 85
-KICK_ROLLOFF_THRESHOLD_PERCENTILE = 20
-SNARE_ROLLOFF_THRESHOLD_PERCENTILE = 80
-
-
-def detect_kick_snare(y, sr) -> Tuple[List[float], List[float]]:
-    if not LIBROSA_AVAILABLE:
-        print("[DrumGen] Ошибка: библиотека librosa не установлена.")
-        return [], []
-
-    try:
-
-        y_harmonic, y_percussive = librosa.effects.hpss(y, margin=(1.0, 5.0))
-
-        onset_env = librosa.onset.onset_strength(y=y_percussive, sr=sr)
-        onset_times = librosa.times_like(onset_env, sr=sr)
-
-        onset_frames = librosa.util.peak_pick(
-            onset_env,
-            pre_max=5, post_max=5,  
-            pre_avg=20, post_avg=20,  
-            delta=onset_env.max() * 0.1,  
-            wait=1
-        )
-        
-        spectral_centroids = librosa.feature.spectral_centroid(y=y_percussive, sr=sr)[0]
-
-        
-        zero_crossing_rate = librosa.feature.zero_crossing_rate(y=y_percussive)[0]
-
-        
-        spectral_rolloffs = \
-        librosa.feature.spectral_rolloff(y=y_percussive, sr=sr, roll_percent=SPECTRAL_ROLLOFF_THRESHOLD_PERCENTILE)[0]
-
-        
-        S = np.abs(librosa.stft(y_percussive))
-        freqs = librosa.fft_frequencies(sr=sr)
-
-        
-        kick_mask = (freqs >= KICK_FREQ_RANGE[0]) & (freqs <= KICK_FREQ_RANGE[1])
-        kick_energy = np.sum(S[kick_mask, :], axis=0)
-
-        
-        snare_mask = (freqs >= SNARE_FREQ_RANGE[0]) & (freqs <= SNARE_FREQ_RANGE[1])
-        snare_energy = np.sum(S[snare_mask, :], axis=0)
-
-        
-        total_energy = np.sum(S, axis=0)
-        kick_energy_norm = kick_energy / (total_energy + 1e-8)  
-        snare_energy_norm = snare_energy / (total_energy + 1e-8)
-
-        
-        kick_times = []
-        snare_times = []
-
-        
-        centroid_threshold_kick = np.percentile(spectral_centroids, KICK_SPECTRAL_CENTROID_THRESHOLD_PERCENTILE)
-        centroid_threshold_snare = np.percentile(spectral_centroids, SNARE_SPECTRAL_CENTROID_THRESHOLD_PERCENTILE)
-        zcr_threshold_kick = np.percentile(zero_crossing_rate, KICK_ZCR_THRESHOLD_PERCENTILE)
-        zcr_threshold_snare = np.percentile(zero_crossing_rate, SNARE_ZCR_THRESHOLD_PERCENTILE)
-        rolloff_threshold_kick = np.percentile(spectral_rolloffs, KICK_ROLLOFF_THRESHOLD_PERCENTILE)
-        rolloff_threshold_snare = np.percentile(spectral_rolloffs, SNARE_ROLLOFF_THRESHOLD_PERCENTILE)
-
-        for frame_idx in onset_frames:
-            
-            if frame_idx >= len(spectral_centroids) or frame_idx >= len(freqs):
-                continue
-
-            time = onset_times[frame_idx]
-
-            
-            centroid = spectral_centroids[frame_idx]
-            zcr = zero_crossing_rate[frame_idx]
-            rolloff = spectral_rolloffs[frame_idx]
-            kick_e = kick_energy_norm[frame_idx]
-            snare_e = snare_energy_norm[frame_idx]
-
-            
-            
-            if centroid < centroid_threshold_kick and zcr < zcr_threshold_kick:
-                kick_times.append(time)
-                continue
-            elif centroid > centroid_threshold_snare and zcr > zcr_threshold_snare:
-                snare_times.append(time)
-                continue
-
-            
-            if rolloff < rolloff_threshold_kick:
-                kick_times.append(time)
-                continue
-            elif rolloff > rolloff_threshold_snare:
-                snare_times.append(time)
-                continue
-
-            
-            total_energy_frame = total_energy[frame_idx] if frame_idx < len(total_energy) else 1.0
-            if total_energy_frame > 1e-8:  
-                if kick_e > snare_e and kick_e > 0.05:  
-                    kick_times.append(time)
-                    continue
-                elif snare_e >= kick_e and snare_e > 0.05:  
-                    snare_times.append(time)
-                    continue
-
-            
-            
-            
-            
-            kick_score = 0
-            snare_score = 0
-
-            
-            if centroid <= centroid_threshold_kick:
-                kick_score += 1
-            else:
-                snare_score += 1
-
-            if zcr <= zcr_threshold_kick:
-                kick_score += 1
-            else:
-                snare_score += 1
-
-            if rolloff <= rolloff_threshold_kick:
-                kick_score += 1
-            else:
-                snare_score += 1
-
-            if kick_e > snare_e:
-                kick_score += 1
-            else:
-                snare_score += 1
-
-            if kick_score > snare_score:
-                kick_times.append(time)
-            elif snare_score > kick_score:
-                snare_times.append(time)
-            
-
-        
-        
-        def remove_close_times(time_list, min_interval=0.05):
-            if not time_list:
-                return []
-            sorted_times = sorted(set(time_list))  
-            filtered_times = [sorted_times[0]]
-            for t in sorted_times[1:]:
-                if t - filtered_times[-1] >= min_interval:
-                    filtered_times.append(t)
-            return filtered_times
-
-        kick_times = remove_close_times(kick_times)
-        snare_times = remove_close_times(snare_times)
-
-        print(f"[DrumGen] Найдено {len(kick_times)} kick и {len(snare_times)} snare (после обработки)")
-
-        return kick_times, snare_times
-    except Exception as e:
-        print(f"[DrumGen] Ошибка детекции kick/snare: {e}")
-        import traceback
-        traceback.print_exc()
-        return [], []
-
-
-def generate_drums_notes(song_path: str, bpm: float, lanes: int = 4, sync_tolerance: float = 0.2) -> Optional[List[Dict]]: 
+def generate_drums_notes(song_path: str, bpm: float, lanes: int = 4, sync_tolerance: float = 0.2) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
 
     if not bpm or bpm <= 0:
@@ -202,7 +34,8 @@ def generate_drums_notes(song_path: str, bpm: float, lanes: int = 4, sync_tolera
         y, sr = librosa.load(song_path, sr=None, mono=True, dtype='float32')
         print(f"[DrumGen] Аудио загружено: длительность {len(y) / sr:.2f}с, частота {sr} Гц")
 
-        kick_times, snare_times = detect_kick_snare(y, sr)
+
+        kick_times, snare_times = detect_kick_snare_with_essentia(y, sr, song_path)
         print(f"[DrumGen] После детекции: {len(kick_times)} kick и {len(snare_times)} snare")
 
         try:
@@ -221,26 +54,24 @@ def generate_drums_notes(song_path: str, bpm: float, lanes: int = 4, sync_tolera
                 beats = np.arange(0, duration, beat_interval)
                 print(f"[DrumGen] Создано {len(beats)} битов вручную по BPM")
 
-        def sync_to_beats(hit_times, tolerance=0.2): 
+        def sync_to_beats(hit_times, tolerance=0.2):
             if len(beats) == 0:
                 print("[DrumGen] Нет битов для синхронизации, возвращаем как есть")
                 return hit_times
 
             synced = []
             for t in hit_times:
-                idx = np.argmin(np.abs(beats - t)) 
+                idx = np.argmin(np.abs(beats - t))
                 beat_time = beats[idx]
-                if abs(beat_time - t) <= tolerance: 
+                if abs(beat_time - t) <= tolerance:
                     synced.append(beat_time)
 
-            
             unique_synced = []
             for t in sorted(synced):
                 if not unique_synced or abs(t - unique_synced[-1]) > 0.01:
                     unique_synced.append(t)
             return unique_synced
 
-        
         synced_kicks = sync_to_beats(kick_times, tolerance=sync_tolerance)
         synced_snares = sync_to_beats(snare_times, tolerance=sync_tolerance)
 
@@ -282,8 +113,6 @@ def generate_drums_notes(song_path: str, bpm: float, lanes: int = 4, sync_tolera
             if not available_lanes:
                 lane = min(range(lanes), key=lambda l: last_lane_usage.get(l, -1))
             else:
-                
-                
                 lane = random.choice(available_lanes)
 
             last_lane_usage[lane] = adjusted_time
