@@ -75,7 +75,6 @@ def analyze_bpm():
 
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
-    """Генерация барабанных нот для песни"""
     print("DEBUG: /generate_drums request received")
     print(f"DEBUG: Content-Type: {request.content_type}")
     print(f"DEBUG: Headers: {dict(request.headers)}")

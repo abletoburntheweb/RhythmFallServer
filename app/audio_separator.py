@@ -14,9 +14,6 @@ except ImportError:
 
 
 def detect_kick_snare_with_essentia(y, sr, audio_path: str):
-    """
-    Использует essentia для улучшенной детекции ударных
-    """
     if not ESSENTIA_AVAILABLE:
         print("[Essentia] Essentia не установлена, используем librosa")
         return detect_kick_snare_original(y, sr)
@@ -78,9 +75,6 @@ def detect_kick_snare_with_essentia(y, sr, audio_path: str):
 
 
 def detect_kick_snare_original(y, sr) -> tuple[list, list]:
-    """
-    Улучшенная оригинальная логика детекции kick/snare
-    """
     try:
         y_harmonic, y_percussive = librosa.effects.hpss(y, margin=(1.0, 5.0))
 
