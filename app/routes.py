@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator
+from .track_detector import identify_track
 
 bp = Blueprint("main", __name__)
 
@@ -19,6 +20,7 @@ def home():
         "endpoints": {
             "analyze_bpm": "POST /analyze_bpm - Analyze BPM from audio",
             "generate_drums": "POST /generate_drums - Generate drum notes",
+            "identify_track": "POST /identify_track - Identify track by audio",
             "list_songs": "GET /songs - List available songs"
         }
     })
@@ -83,6 +85,60 @@ def analyze_bpm():
                 print(f"[WARNING] Failed to remove temp file: {e}")
 
 
+@bp.route("/identify_track", methods=["POST"])
+def identify_track_endpoint():
+    print("DEBUG: /identify_track request received")
+    print(f"DEBUG: Content-Type: {request.content_type}")
+    print(f"DEBUG: Headers: {dict(request.headers)}")
+
+    temp_path = None
+    try:
+        audio_data = request.get_data()
+        if not audio_data:
+            return jsonify({"error": "No audio data received"}), 400
+
+        filename = request.headers.get("X-Filename", "uploaded_audio.mp3")
+
+        safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ").rstrip()
+        if not safe_filename:
+            safe_filename = f"track_{int(time.time())}.mp3"
+
+        temp_path = os.path.join("temp_uploads", safe_filename)
+        with open(temp_path, "wb") as f:
+            f.write(audio_data)
+
+        print(f"[TrackDetector] Processing {temp_path}")
+
+        track_info = identify_track(temp_path)
+
+        if not track_info.get('success'):
+            print("[TrackDetector] Track identification failed")
+            return jsonify({
+                "error": "Could not identify track from audio",
+                "status": "not_found"
+            }), 404
+
+        print(f"[TrackDetector] Successfully identified: {track_info['artist']} - {track_info['title']}")
+
+        return jsonify({
+            "track_info": track_info,
+            "status": "success"
+        })
+
+    except Exception as e:
+        print(f"[TrackDetector] Exception in identify_track: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+                print(f"[CLEANUP] Temporary file removed: {temp_path}")
+            except Exception as e:
+                print(f"[WARNING] Failed to remove temp file: {e}")
+
+
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
     print("DEBUG: /generate_drums request received")
@@ -118,8 +174,24 @@ def generate_drums():
             return jsonify({"error": "Invalid X-Sync-Tolerance value, must be a positive number (0.01-1.0)"}), 400
 
         use_madmom_beats = request.headers.get("X-Use-Madmom", "true").lower() == "true"
-
         use_stems = True
+
+        track_info = None
+        if request.headers.get("X-Identify-Track", "false").lower() == "true":
+            print("[DrumGen] Identifying track for genre-based generation...")
+            temp_track_path = os.path.join("temp_uploads", f"track_{int(time.time())}_{safe_filename}")
+            with open(temp_track_path, "wb") as f:
+                f.write(audio_data)
+
+            track_info = identify_track(temp_track_path)
+
+            if os.path.exists(temp_track_path):
+                os.remove(temp_track_path)
+
+            if track_info and track_info.get('success'):
+                print(f"[DrumGen] Identified track: {track_info['artist']} - {track_info['title']}")
+                if track_info['genres']:
+                    print(f"[DrumGen] Genres: {', '.join(track_info['genres'])}")
 
         if bpm:
             try:
@@ -160,7 +232,9 @@ def generate_drums():
             lanes=lanes,
             sync_tolerance=sync_tolerance,
             use_madmom_beats=use_madmom_beats,
-            use_stems=use_stems
+            use_stems=use_stems,
+            track_info=track_info,
+            auto_identify_track=track_info is None
         )
 
         if not notes:
@@ -176,7 +250,7 @@ def generate_drums():
         kicks_count = len([n for n in notes if n["type"] == "KickNote"])
         snares_count = len([n for n in notes if n["type"] == "SnareNote"])
 
-        return jsonify({
+        response_data = {
             "notes": notes,
             "bpm": bpm,
             "lanes": lanes,
@@ -187,7 +261,18 @@ def generate_drums():
                 "snares": snares_count
             },
             "status": "success"
-        })
+        }
+
+        if track_info and track_info.get('success'):
+            response_data['track_info'] = {
+                'title': track_info['title'],
+                'artist': track_info['artist'],
+                'album': track_info['album'],
+                'year': track_info['year'],
+                'genres': track_info['genres']
+            }
+
+        return jsonify(response_data)
 
     except Exception as e:
         print(f"[DrumGen] Exception in generate_drums: {e}")
@@ -255,5 +340,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/songs", "/health"]
     })

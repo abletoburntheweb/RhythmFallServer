@@ -49,8 +49,42 @@ except ImportError:
     print("[DrumGen] Audio-separator не доступен — анализ на полном миксе")
 
 from .audio_separator import detect_kick_snare_with_essentia
+from .track_detector import identify_track
 
 NOTES_DIR = Path("songs") / "notes"
+
+
+def load_genre_configs():
+    config_path = Path(__file__).parent / "genre_configs.json"
+    if config_path.exists():
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        return {
+            "default": {
+                "kick_sensitivity_multiplier": 1.0,
+                "snare_sensitivity_multiplier": 1.0,
+                "pattern_complexity": "medium",
+                "kick_priority": False,
+                "sync_tolerance_multiplier": 1.0
+            }
+        }
+
+
+GENRE_CONFIGS = load_genre_configs()
+
+
+def get_genre_params(genres: List[str]) -> Dict:
+    if not genres:
+        return GENRE_CONFIGS.get("default", {})
+
+    genres_lower = [g.lower() for g in genres]
+
+    for genre in genres_lower:
+        if genre in GENRE_CONFIGS:
+            return GENRE_CONFIGS[genre]
+
+    return GENRE_CONFIGS.get("default", {})
 
 
 def separate_drums_with_audiosep(song_path: str) -> str:
@@ -133,9 +167,31 @@ def generate_drums_notes(
         lanes: int = 4,
         sync_tolerance: float = 0.2,
         use_madmom_beats: bool = True,
-        use_stems: bool = True
+        use_stems: bool = True,
+        track_info: Optional[Dict] = None,
+        auto_identify_track: bool = False
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
+
+    if not track_info and auto_identify_track:
+        print(f"[DrumGen] Автоматическая идентификация трека для: {song_path}")
+        track_info = identify_track(song_path)
+        if track_info and track_info.get('success'):
+            print(f"[DrumGen] Автоматически определен трек: {track_info['artist']} - {track_info['title']}")
+            if track_info['genres']:
+                print(f"[DrumGen] Жанры: {', '.join(track_info['genres'])}")
+        else:
+            print("[DrumGen] Не удалось автоматически идентифицировать трек")
+
+    genre_params = {}
+    if track_info and track_info.get('genres'):
+        genre_params = get_genre_params(track_info['genres'])
+        print(f"[DrumGen] Применены параметры для жанра: {track_info['genres'][0]}")
+        print(f"[DrumGen] Параметры: {genre_params}")
+
+        if 'sync_tolerance_multiplier' in genre_params:
+            sync_tolerance *= genre_params['sync_tolerance_multiplier']
+            print(f"[DrumGen] Sync tolerance изменен: {sync_tolerance:.2f}")
 
     if not bpm or bpm <= 0:
         print("Ошибка: некорректный BPM")
@@ -220,6 +276,7 @@ def generate_drums_notes(
         print("[DrumGen] Нет нот после синхронизации — используем сырые")
         synced_kicks = raw_kick_times
         synced_snares = raw_snare_times
+
     all_events = []
     for t in synced_kicks:
         all_events.append({"type": "KickNote", "time": t})
@@ -259,6 +316,17 @@ def generate_drums_notes(
     print(f"   - Kick: {kicks_count} | Snare: {snares_count}")
     print(f"   - Использован файл: {analysis_path}")
 
+    if track_info and track_info.get('success'):
+        notes.append({
+            "type": "TrackInfo",
+            "title": track_info['title'],
+            "artist": track_info['artist'],
+            "genres": track_info['genres'],
+            "album": track_info['album'],
+            "year": track_info['year'],
+            "time": -1
+        })
+
     if len(notes) == 0:
         print("[DrumGen] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
@@ -292,9 +360,11 @@ def save_drums_notes(notes_data: List[Dict], song_path: str) -> bool:
 
         serializable = convert_types(notes_data)
 
+        filtered_notes = [note for note in serializable if note.get('type') != 'TrackInfo']
+
         temp_path = notes_path.with_suffix('.tmp')
         with open(temp_path, 'w', encoding='utf-8') as f:
-            json.dump(serializable, f, ensure_ascii=False, indent=4)
+            json.dump(filtered_notes, f, ensure_ascii=False, indent=4)
             f.flush()
             os.fsync(f.fileno())
         temp_path.replace(notes_path)
