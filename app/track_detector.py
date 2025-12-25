@@ -24,7 +24,7 @@ except ImportError:
     MUSICBRAINZ_AVAILABLE = False
     print("[TrackDetector] MusicBrainz не установлен (pip install musicbrainzngs)")
 
-ACOUSTID_API_KEY = "0nUW6lXEvg"
+ACOUSTID_API_KEY = "PUlkAEkjhm"
 
 if MUSICBRAINZ_AVAILABLE:
     musicbrainzngs.set_useragent("RhythmFall", "1.0", "abtw324@gmail.com")
@@ -81,6 +81,8 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             return None
 
         print(f"[AcoustID] Fingerprint получен (duration: {duration}s)")
+        print(f"[AcoustID] Fingerprint length: {len(fingerprint) if fingerprint else 0}")
+        print(f"[AcoustID] Duration type: {type(duration)}, value: {duration}")
 
         url = "https://api.acoustid.org/v2/lookup"
         data = {
@@ -91,10 +93,15 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'meta': 'recordings releasegroups releases tracks usermeta'
         }
 
+        print(f"[AcoustID] Request data: {data}")
+
         response = requests.post(url, data=data, timeout=30)
+        print(f"[AcoustID] Response status: {response.status_code}")
+        print(f"[AcoustID] Response text: {response.text}")
         response.raise_for_status()
 
         result = response.json()
+        print(f"[AcoustID] API response: {result}")
 
         if not result or 'results' not in result:
             print("[AcoustID] Нет результатов")
@@ -149,6 +156,10 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
 
         return track_info
 
+    except requests.exceptions.HTTPError as e:
+        print(f"[AcoustID] HTTP ошибка: {e}")
+        print(f"[AcoustID] Response content: {e.response.text}")
+        return None
     except requests.exceptions.RequestException as e:
         print(f"[AcoustID] Ошибка HTTP запроса: {e}")
         return None
@@ -217,7 +228,7 @@ def get_track_details_from_musicbrainz(acoustid_id: str) -> Optional[Dict]:
             for tag in recording['tags']:
                 if 'name' in tag:
                     tags.append(tag['name'].lower())
-            details['genres'] = tags[:10] 
+            details['genres'] = tags[:10]
 
         if 'release-group' in recording and recording['release-group']:
             rg = recording['release-group']
