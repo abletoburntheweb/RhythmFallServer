@@ -146,6 +146,16 @@ def separate_drums_with_audiosep(song_path: str) -> str:
             import shutil
             shutil.copy2(drums_file, drums_path)
             print(f"[AudioSep] Drums-стем успешно скопирован: {drums_path}")
+
+            for created_file in output_files:
+                created_path = output_dir / created_file
+                if created_path.exists():
+                    try:
+                        os.remove(created_path)
+                        print(f"[AudioSep] Временный файл удален: {created_path}")
+                    except Exception as e:
+                        print(f"[AudioSep] Ошибка при удалении временного файла {created_path}: {e}")
+
             return str(drums_path)
         else:
             current_dir = Path(".")
@@ -223,9 +233,11 @@ def generate_drums_notes(
         return None
 
     analysis_path = song_path
+    drums_stem_path = None
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
-        analysis_path = separate_drums_with_audiosep(song_path)
-        if analysis_path != song_path:
+        drums_stem_path = separate_drums_with_audiosep(song_path)
+        if drums_stem_path != song_path:
+            analysis_path = drums_stem_path
             print(f"[DrumGen] Анализ проводится на изолированном drums-стеме: {analysis_path}")
             import os
             original_size = os.path.getsize(song_path)
@@ -355,6 +367,13 @@ def generate_drums_notes(
 
     if len(notes) == 0:
         print("[DrumGen] ВНИМАНИЕ: Сгенерировано 0 нот!")
+
+    if drums_stem_path and drums_stem_path != song_path and Path(drums_stem_path).exists():
+        try:
+            os.remove(drums_stem_path)
+            print(f"[CLEANUP] Drums-стем удален: {drums_stem_path}")
+        except Exception as e:
+            print(f"[WARNING] Не удалось удалить drums-стем: {e}")
 
     return notes
 

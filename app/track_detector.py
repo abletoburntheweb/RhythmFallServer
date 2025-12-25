@@ -169,87 +169,6 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         traceback.print_exc()
         return None
 
-
-def get_track_details_from_musicbrainz(acoustid_id: str) -> Optional[Dict]:
-    if not MUSICBRAINZ_AVAILABLE:
-        print("[MusicBrainz] MusicBrainz не доступен")
-        return None
-
-    try:
-        print(f"[MusicBrainz] Запрос деталей для AcoustID: {acoustid_id}")
-
-        recordings = musicbrainzngs.get_recordings_by_acoustid(acoustid_id)
-
-        if not recordings or 'recordings' not in recordings:
-            print("[MusicBrainz] Нет записей для этого AcoustID")
-            return None
-
-        if not recordings['recordings']:
-            print("[MusicBrainz] Пустой список записей")
-            return None
-
-        recording = recordings['recordings'][0]
-
-        details = {
-            'title': recording.get('title', 'Unknown'),
-            'artist': 'Unknown',
-            'album': 'Unknown',
-            'year': None,
-            'genres': [],
-            'primary_type': None,
-            'secondary_types': []
-        }
-
-        if 'artist-credit' in recording:
-            artist_credit = recording['artist-credit']
-            if artist_credit and isinstance(artist_credit, list) and len(artist_credit) > 0:
-                details['artist'] = artist_credit[0].get('artist', {}).get('name', 'Unknown')
-            elif isinstance(artist_credit, str):
-                details['artist'] = artist_credit
-        elif 'artists' in recording and recording['artists']:
-            details['artist'] = recording['artists'][0].get('name', 'Unknown')
-
-        if 'releases' in recording and recording['releases']:
-            first_release = recording['releases'][0]
-            details['album'] = first_release.get('title', 'Unknown')
-
-            if 'date' in first_release:
-                date_info = first_release['date']
-                if isinstance(date_info, dict) and 'year' in date_info:
-                    details['year'] = date_info['year']
-                elif isinstance(date_info, str) and len(date_info) >= 4:
-                    try:
-                        details['year'] = int(date_info[:4])
-                    except ValueError:
-                        pass
-
-        if 'tags' in recording:
-            tags = []
-            for tag in recording['tags']:
-                if 'name' in tag:
-                    tags.append(tag['name'].lower())
-            details['genres'] = tags[:10]
-
-        if 'release-group' in recording and recording['release-group']:
-            rg = recording['release-group']
-            if 'primary-type' in rg:
-                details['primary_type'] = rg['primary-type']
-            if 'secondary-types' in rg:
-                details['secondary_types'] = rg['secondary-types']
-
-        print(f"[MusicBrainz] Детали: {details['artist']} - {details['title']}")
-        if details['genres']:
-            print(f"[MusicBrainz] Жанры: {', '.join(details['genres'])}")
-
-        return details
-
-    except Exception as e:
-        print(f"[MusicBrainz] Ошибка получения деталей: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-
 def identify_track(audio_path: str) -> Dict:
     print(f"🔍 Идентификация трека: {audio_path}")
 
@@ -272,17 +191,6 @@ def identify_track(audio_path: str) -> Dict:
     if acoustid_result:
         result.update(acoustid_result)
         result['success'] = True
-
-        if acoustid_result.get('acoustid_id'):
-            mb_details = get_track_details_from_musicbrainz(acoustid_result['acoustid_id'])
-            if mb_details:
-                for key, value in mb_details.items():
-                    if key not in ['acoustid_id', 'score', 'duration'] or not result.get(key):
-                        if value and (not result.get(key) or result[key] == 'Unknown'):
-                            result[key] = value
-                        elif key == 'genres' and value:
-                            result['genres'].extend(value)
-                            result['genres'] = list(set(result['genres']))
     else:
         print("[TrackDetector] Не удалось идентифицировать трек")
 
