@@ -5,6 +5,7 @@ import numpy as np
 import random
 from pathlib import Path
 from typing import List, Dict, Optional
+import tempfile
 
 try:
     import librosa
@@ -27,7 +28,6 @@ def import_madmom() -> bool:
         import madmom
         from madmom.features.beats import RNNBeatProcessor as _RNNBeat
         from madmom.features.beats import BeatTrackingProcessor as _BeatTrack
-
         RNNBeatProcessor = _RNNBeat
         BeatTrackingProcessor = _BeatTrack
         MADMOM_AVAILABLE = True
@@ -38,9 +38,93 @@ def import_madmom() -> bool:
         MADMOM_AVAILABLE = False
         return False
 
+
+try:
+    from audio_separator.separator import Separator
+
+    AUDIO_SEPARATOR_AVAILABLE = True
+    print("[DrumGen] Audio-separator доступен — будет использоваться для разделения стемов")
+except ImportError:
+    AUDIO_SEPARATOR_AVAILABLE = False
+    print("[DrumGen] Audio-separator не доступен — анализ на полном миксе")
+
 from .audio_separator import detect_kick_snare_with_essentia
 
 NOTES_DIR = Path("songs") / "notes"
+
+
+def separate_drums_with_audiosep(song_path: str) -> str:
+    song_path = Path(song_path)
+    drums_path = song_path.parent / f"{song_path.stem}_drums.wav"
+
+    if drums_path.exists():
+        print(f"[AudioSep] Кэшированный drums-стем найден: {drums_path}")
+        return str(drums_path)
+
+    print("[AudioSep] Разделение через audio-separator...")
+    try:
+        separator = Separator(
+            output_dir=str(song_path.parent),
+            output_format="WAV"
+        )
+
+        target_model = None
+        available_models = separator.get_simplified_model_list()
+
+        for model in available_models:
+            if 'drums' in model.lower() and ('kuielab' in model.lower() or 'drum' in model.lower()):
+                target_model = model
+                print(f"[AudioSep] Найдена специализированная drums-модель: {target_model}")
+                break
+
+        if not target_model:
+            for model in available_models:
+                if 'htdemucs' in model.lower():
+                    target_model = model
+                    print(f"[AudioSep] Найдена htdemucs-модель: {target_model}")
+                    break
+
+        if not target_model:
+            print(f"[AudioSep] Ни одной подходящей модели не найдено")
+            return str(song_path)
+
+        print(f"[AudioSep] Загружаем модель: {target_model}")
+        separator.load_model(target_model)
+
+        output_files = separator.separate(str(song_path))
+
+        print(f"[AudioSep] Output files returned: {output_files}")
+
+        output_dir = Path(song_path.parent)
+        drums_files = list(output_dir.glob(f"{song_path.stem}*(Drums)*.wav"))
+
+        if drums_files:
+            drums_file = drums_files[0]
+            import shutil
+            shutil.copy2(drums_file, drums_path)
+            print(f"[AudioSep] Drums-стем успешно скопирован: {drums_path}")
+            return str(drums_path)
+        else:
+            current_dir = Path(".")
+            current_drums_files = list(current_dir.glob(f"*{song_path.stem}*(Drums)*.wav"))
+            if current_drums_files:
+                drums_file = current_drums_files[0]
+                import shutil
+                shutil.copy2(drums_file, drums_path)
+                print(f"[AudioSep] Drums-стем найден в текущей директории и скопирован: {drums_path}")
+                return str(drums_path)
+            else:
+                print("[AudioSep] Не удалось найти файл drums в output директории")
+                all_created_files = list(output_dir.glob(f"{song_path.stem}*.*"))
+                print(f"[AudioSep] Все созданные файлы: {[f.name for f in all_created_files]}")
+                return str(song_path)
+
+    except Exception as e:
+        print(f"[AudioSep] Ошибка при разделении: {e}")
+        import traceback
+        traceback.print_exc()
+        print("[AudioSep] Fallback на оригинальный файл")
+        return str(song_path)
 
 
 def generate_drums_notes(
@@ -48,13 +132,30 @@ def generate_drums_notes(
         bpm: float,
         lanes: int = 4,
         sync_tolerance: float = 0.2,
-        use_madmom_beats: bool = True
+        use_madmom_beats: bool = True,
+        use_stems: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
 
     if not bpm or bpm <= 0:
         print("Ошибка: некорректный BPM")
         return None
+
+    analysis_path = song_path
+    if use_stems and AUDIO_SEPARATOR_AVAILABLE:
+        analysis_path = separate_drums_with_audiosep(song_path)
+        if analysis_path != song_path:
+            print(f"[DrumGen] Анализ проводится на изолированном drums-стеме: {analysis_path}")
+            import os
+            original_size = os.path.getsize(song_path)
+            stem_size = os.path.getsize(analysis_path)
+            print(f"[DrumGen] Оригинал: {original_size} байт, стем: {stem_size} байт")
+            if original_size == stem_size:
+                print("[DrumGen] ВНИМАНИЕ: Размеры файлов одинаковы - возможно, стем не был создан корректно")
+        else:
+            print("[DrumGen] Fallback: анализ на полном миксе (стем не был создан)")
+    else:
+        print("[DrumGen] Анализ на полном миксе (stems отключены или Audio-separator недоступен)")
 
     madmom_ready = False
     if use_madmom_beats:
@@ -63,39 +164,36 @@ def generate_drums_notes(
     beats = np.array([])
 
     if madmom_ready:
-        print("[DrumGen] Используем madmom RNN для точного определения битов")
+        print("[DrumGen] Используем madmom RNN для beat tracking")
         try:
             proc = RNNBeatProcessor()
-            act = proc(song_path)
+            act = proc(analysis_path)
             tracker = BeatTrackingProcessor(fps=100)
             beats = np.array(tracker(act))
             print(f"[Madmom] Найдено {len(beats)} битов")
         except Exception as e:
-            print(f"[Madmom] Ошибка при beat tracking: {e}")
-            beats = np.array([])
+            print(f"[Madmom] Ошибка beat tracking: {e}")
 
     if len(beats) == 0:
-        print("[DrumGen] Fallback: используем librosa для определения битов")
+        print("[DrumGen] Fallback: librosa beat tracking")
         if not LIBROSA_AVAILABLE:
-            print("[DrumGen] librosa недоступна — возвращаем None")
             return None
-        y, sr = librosa.load(song_path, sr=None, mono=True, dtype='float32')
+        y, sr = librosa.load(analysis_path, sr=None, mono=True, dtype='float32')
         try:
             _, beats = librosa.beat.beat_track(y=y, sr=sr, bpm=bpm, units='time')
-            print(f"[Librosa] Найдено {len(beats)} битов (с заданным BPM)")
-        except Exception:
+            print(f"[Librosa] Найдено {len(beats)} битов (с BPM)")
+        except:
             try:
                 _, beats = librosa.beat.beat_track(y=y, sr=sr, units='time')
-                print(f"[Librosa] Найдено {len(beats)} битов (автоопределение BPM)")
-            except Exception:
+                print(f"[Librosa] Найдено {len(beats)} битов (авто)")
+            except:
                 duration = len(y) / sr
-                beat_interval = 60.0 / bpm
-                beats = np.arange(0, duration, beat_interval)
-                print(f"[Librosa] Создано {len(beats)} битов вручную по BPM")
+                beats = np.arange(0, duration, 60.0 / bpm)
+                print(f"[Librosa] Создано {len(beats)} битов вручную")
 
-    print("[DrumGen] Детекция kick/snare через essentia")
-    y, sr = librosa.load(song_path, sr=None, mono=True, dtype='float32')
-    raw_kick_times, raw_snare_times = detect_kick_snare_with_essentia(y, sr, song_path)
+    print(f"[DrumGen] Детекция kick/snare через essentia на: {analysis_path}")
+    y, sr = librosa.load(analysis_path, sr=None, mono=True, dtype='float32')
+    raw_kick_times, raw_snare_times = detect_kick_snare_with_essentia(y, sr, analysis_path)
     print(f"[Essentia] Сырые события: {len(raw_kick_times)} kick, {len(raw_snare_times)} snare")
 
     def sync_to_beats(hit_times: List[float]) -> List[float]:
@@ -119,10 +217,9 @@ def generate_drums_notes(
     print(f"[DrumGen] После синхронизации: {len(synced_kicks)} kick, {len(synced_snares)} snare")
 
     if len(synced_kicks) + len(synced_snares) == 0:
-        print("[DrumGen] Нет нот после синхронизации — используем сырые времена")
+        print("[DrumGen] Нет нот после синхронизации — используем сырые")
         synced_kicks = raw_kick_times
         synced_snares = raw_snare_times
-
     all_events = []
     for t in synced_kicks:
         all_events.append({"type": "KickNote", "time": t})
@@ -160,6 +257,7 @@ def generate_drums_notes(
 
     print(f"✅ Сгенерировано {len(notes)} барабанных нот")
     print(f"   - Kick: {kicks_count} | Snare: {snares_count}")
+    print(f"   - Использован файл: {analysis_path}")
 
     if len(notes) == 0:
         print("[DrumGen] ВНИМАНИЕ: Сгенерировано 0 нот!")
@@ -208,6 +306,7 @@ def save_drums_notes(notes_data: List[Dict], song_path: str) -> bool:
         if 'temp_path' in locals() and temp_path.exists():
             temp_path.unlink()
         return False
+
 
 def load_drums_notes(song_path: str) -> Optional[List[Dict]]:
     base_name = Path(song_path).stem
