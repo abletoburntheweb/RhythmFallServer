@@ -51,6 +51,15 @@ except ImportError:
 from .audio_separator import detect_kick_snare_with_essentia
 from .track_detector import identify_track
 
+try:
+    from .genre_detector import detect_genres
+
+    GENRE_DETECTION_AVAILABLE = True
+    print("[DrumGen] Genre detection доступен")
+except ImportError:
+    GENRE_DETECTION_AVAILABLE = False
+    print("[DrumGen] Genre detection не установлен")
+
 NOTES_DIR = Path("songs") / "notes"
 
 
@@ -169,7 +178,8 @@ def generate_drums_notes(
         use_madmom_beats: bool = True,
         use_stems: bool = True,
         track_info: Optional[Dict] = None,
-        auto_identify_track: bool = False
+        auto_identify_track: bool = False,
+        use_filename_for_genres: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
 
@@ -179,14 +189,29 @@ def generate_drums_notes(
         if track_info and track_info.get('success'):
             print(f"[DrumGen] Автоматически определен трек: {track_info['artist']} - {track_info['title']}")
             if track_info['genres']:
-                print(f"[DrumGen] Жанры: {', '.join(track_info['genres'])}")
+                print(f"[DrumGen] Жанры из аудио: {', '.join(track_info['genres'])}")
         else:
             print("[DrumGen] Не удалось автоматически идентифицировать трек")
 
-    genre_params = {}
+    all_genres = []
+
     if track_info and track_info.get('genres'):
-        genre_params = get_genre_params(track_info['genres'])
-        print(f"[DrumGen] Применены параметры для жанра: {track_info['genres'][0]}")
+        all_genres.extend(track_info['genres'])
+        print(f"[DrumGen] Жанры из аудио: {track_info['genres']}")
+
+    if use_filename_for_genres and not all_genres:
+        if GENRE_DETECTION_AVAILABLE:
+            filename_genres = detect_genres(Path(song_path).name, track_info)
+            if filename_genres:
+                all_genres.extend(filename_genres)
+                print(f"[DrumGen] Жанры из названия файла: {filename_genres}")
+
+    unique_genres = list(set([g for g in all_genres if g and g.lower() != 'unknown']))
+
+    genre_params = {}
+    if unique_genres:
+        genre_params = get_genre_params(unique_genres)
+        print(f"[DrumGen] Применены параметры для жанра: {unique_genres[0]}")
         print(f"[DrumGen] Параметры: {genre_params}")
 
         if 'sync_tolerance_multiplier' in genre_params:
@@ -315,13 +340,14 @@ def generate_drums_notes(
     print(f"✅ Сгенерировано {len(notes)} барабанных нот")
     print(f"   - Kick: {kicks_count} | Snare: {snares_count}")
     print(f"   - Использован файл: {analysis_path}")
+    print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
 
     if track_info and track_info.get('success'):
         notes.append({
             "type": "TrackInfo",
             "title": track_info['title'],
             "artist": track_info['artist'],
-            "genres": track_info['genres'],
+            "genres": unique_genres,
             "album": track_info['album'],
             "year": track_info['year'],
             "time": -1

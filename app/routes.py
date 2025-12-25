@@ -7,6 +7,14 @@ import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator
 from .track_detector import identify_track
 
+try:
+    from .genre_detector import detect_genres
+    GENRE_DETECTION_AVAILABLE = True
+    print("[Routes] Genre detection доступен")
+except ImportError:
+    GENRE_DETECTION_AVAILABLE = False
+    print("[Routes] Genre detection не установлен")
+
 bp = Blueprint("main", __name__)
 
 os.makedirs("temp_uploads", exist_ok=True)
@@ -175,6 +183,7 @@ def generate_drums():
 
         use_madmom_beats = request.headers.get("X-Use-Madmom", "true").lower() == "true"
         use_stems = True
+        use_filename_for_genres = request.headers.get("X-Use-Filename-Genres", "true").lower() == "true"
 
         track_info = None
         if request.headers.get("X-Identify-Track", "false").lower() == "true":
@@ -191,7 +200,7 @@ def generate_drums():
             if track_info and track_info.get('success'):
                 print(f"[DrumGen] Identified track: {track_info['artist']} - {track_info['title']}")
                 if track_info['genres']:
-                    print(f"[DrumGen] Genres: {', '.join(track_info['genres'])}")
+                    print(f"[DrumGen] Genres from audio: {', '.join(track_info['genres'])}")
 
         if bpm:
             try:
@@ -225,6 +234,7 @@ def generate_drums():
         print(f"[DrumGen] Processing {temp_path}")
         print(f"  BPM: {bpm}, Lanes: {lanes}, Sync Tolerance: {sync_tolerance}")
         print(f"  Use Madmom: {use_madmom_beats}, Use Stems: {use_stems}")
+        print(f"  Use Filename Genres: {use_filename_for_genres}")
 
         notes = drum_generator.generate_drums_notes(
             temp_path,
@@ -234,7 +244,8 @@ def generate_drums():
             use_madmom_beats=use_madmom_beats,
             use_stems=use_stems,
             track_info=track_info,
-            auto_identify_track=track_info is None
+            auto_identify_track=track_info is None,
+            use_filename_for_genres=use_filename_for_genres
         )
 
         if not notes:
