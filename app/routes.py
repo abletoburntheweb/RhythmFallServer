@@ -9,7 +9,6 @@ from .track_detector import identify_track
 
 try:
     from .genre_detector import detect_genres
-
     GENRE_DETECTION_AVAILABLE = True
     print("[Routes] Genre detection доступен")
 except ImportError:
@@ -252,10 +251,7 @@ def generate_drums():
         if not notes:
             return jsonify({"error": "Failed to generate drum notes (no notes generated)"}), 500
 
-        try:
-            drum_generator.save_drums_notes(notes, temp_path)
-        except Exception as e:
-            print(f"[WARNING] Failed to save notes: {e}")
+        drum_generator.save_drums_notes(notes, temp_path)
 
         print(f"[DrumGen] Successfully generated {len(notes)} drum notes")
 
@@ -295,19 +291,9 @@ def generate_drums():
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                print(f"[CLEANUP] Temporary file removed: {temp_path}")
+                print(f"[CLEANUP] Temporary upload file removed: {temp_path}")
             except Exception as e:
-                print(f"[WARNING] Failed to remove temp file: {e}")
-
-        if temp_path:
-            original_path = Path(temp_path)
-            possible_drums_path = original_path.parent / f"{original_path.stem}_drums.wav"
-            if possible_drums_path.exists():
-                try:
-                    os.remove(possible_drums_path)
-                    print(f"[CLEANUP] Temporary drums stem removed: {possible_drums_path}")
-                except Exception as e:
-                    print(f"[WARNING] Failed to remove drums stem: {e}")
+                print(f"[WARNING] Failed to remove temporary upload file: {e}")
 
 
 @bp.route("/generate_notes", methods=["POST"])

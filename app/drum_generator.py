@@ -60,7 +60,7 @@ except ImportError:
     GENRE_DETECTION_AVAILABLE = False
     print("[DrumGen] Genre detection не установлен")
 
-NOTES_DIR = Path("songs") / "notes"
+TEMP_UPLOADS_DIR = Path("temp_uploads")
 
 
 def load_genre_configs():
@@ -96,18 +96,27 @@ def get_genre_params(genres: List[str]) -> Dict:
     return GENRE_CONFIGS.get("default", {})
 
 
-def separate_drums_with_audiosep(song_path: str) -> str:
+def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
     song_path = Path(song_path)
-    drums_path = song_path.parent / f"{song_path.stem}_drums.wav"
+    splitter_folder = song_folder / "splitter"
+    splitter_folder.mkdir(parents=True, exist_ok=True)
+    drums_path = splitter_folder / f"{song_path.stem}_drums.wav"
 
     if drums_path.exists():
         print(f"[AudioSep] Кэшированный drums-стем найден: {drums_path}")
         return str(drums_path)
 
+    existing_files = list(splitter_folder.glob("*.wav"))
+    if existing_files:
+        print(f"[AudioSep] Файлы уже существуют в splitter, используем кэш: {existing_files}")
+        for file in existing_files:
+            if "drums" in file.name.lower():
+                return str(file)
+
     print("[AudioSep] Разделение через audio-separator...")
     try:
         separator = Separator(
-            output_dir=str(song_path.parent),
+            output_dir=str(splitter_folder),
             output_format="WAV"
         )
 
@@ -138,7 +147,7 @@ def separate_drums_with_audiosep(song_path: str) -> str:
 
         print(f"[AudioSep] Output files returned: {output_files}")
 
-        output_dir = Path(song_path.parent)
+        output_dir = splitter_folder
         drums_files = list(output_dir.glob(f"{song_path.stem}*(Drums)*.wav"))
 
         if drums_files:
@@ -154,7 +163,7 @@ def separate_drums_with_audiosep(song_path: str) -> str:
                         os.remove(created_path)
                         print(f"[AudioSep] Временный файл удален: {created_path}")
                     except Exception as e:
-                        print(f"[AudioSep] Ошибка при удалении временного файла {created_path}: {e}")
+                        print(f"[AudioSep] Ошибка при удаления временного файла {created_path}: {e}")
 
             return str(drums_path)
         else:
@@ -232,15 +241,25 @@ def generate_drums_notes(
         print("Ошибка: некорректный BPM")
         return None
 
-    analysis_path = song_path
+    base_name = Path(song_path).stem
+    song_folder = TEMP_UPLOADS_DIR / base_name
+    song_folder.mkdir(parents=True, exist_ok=True)
+
+    original_file_path = song_folder / Path(song_path).name
+    if not original_file_path.exists():
+        import shutil
+        shutil.copy2(song_path, original_file_path)
+        print(f"[DrumGen] Оригинальный файл скопирован: {original_file_path}")
+
+    analysis_path = str(original_file_path)
     drums_stem_path = None
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
-        drums_stem_path = separate_drums_with_audiosep(song_path)
-        if drums_stem_path != song_path:
+        drums_stem_path = separate_drums_with_audiosep(str(original_file_path), song_folder)
+        if drums_stem_path != str(original_file_path):
             analysis_path = drums_stem_path
             print(f"[DrumGen] Анализ проводится на изолированном drums-стеме: {analysis_path}")
             import os
-            original_size = os.path.getsize(song_path)
+            original_size = os.path.getsize(original_file_path)
             stem_size = os.path.getsize(analysis_path)
             print(f"[DrumGen] Оригинал: {original_size} байт, стем: {stem_size} байт")
             if original_size == stem_size:
@@ -368,7 +387,7 @@ def generate_drums_notes(
     if len(notes) == 0:
         print("[DrumGen] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
-    if drums_stem_path and drums_stem_path != song_path and Path(drums_stem_path).exists():
+    if drums_stem_path and drums_stem_path != str(original_file_path) and Path(drums_stem_path).exists():
         try:
             os.remove(drums_stem_path)
             print(f"[CLEANUP] Drums-стем удален: {drums_stem_path}")
@@ -384,10 +403,11 @@ def save_drums_notes(notes_data: List[Dict], song_path: str) -> bool:
         return False
 
     base_name = Path(song_path).stem
-    song_folder = NOTES_DIR / base_name
-    song_folder.mkdir(parents=True, exist_ok=True)
+    song_folder = TEMP_UPLOADS_DIR / base_name
+    notes_folder = song_folder / "notes"
+    notes_folder.mkdir(parents=True, exist_ok=True)
 
-    notes_path = song_folder / f"{base_name}_drums.json"
+    notes_path = notes_folder / f"{base_name}_drums.json"
 
     try:
         def convert_types(obj):
@@ -424,8 +444,8 @@ def save_drums_notes(notes_data: List[Dict], song_path: str) -> bool:
 
 
 def load_drums_notes(song_path: str) -> Optional[List[Dict]]:
-    base_name = Path(song_path).stem
-    notes_path = NOTES_DIR / base_name / f"{base_name}_drums.json"
+    base_name = Path(song_path).stemS
+    notes_path = TEMP_UPLOADS_DIR / base_name / "notes" / f"{base_name}_drums.json"
 
     if not notes_path.exists():
         print(f"[DrumGen] Файл нот не найден: {notes_path}")
