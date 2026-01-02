@@ -93,7 +93,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'meta': 'recordings releasegroups releases tracks usermeta'
         }
 
-        print(f"[AcoustID] Request data: {data}")
+        print(f"[AcoustID] Request  {data}")
 
         response = requests.post(url, data=data, timeout=30)
         print(f"[AcoustID] Response status: {response.status_code}")
@@ -117,10 +117,8 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             print("[AcoustID] Нет информации о записи")
             return None
 
-        recording = best_result['recordings'][0]
-
         track_info = {
-            'title': recording.get('title', 'Unknown'),
+            'title': 'Unknown',
             'artist': 'Unknown',
             'album': 'Unknown',
             'year': None,
@@ -131,23 +129,44 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'success': True
         }
 
-        if 'artists' in recording and recording['artists']:
-            first_artist = recording['artists'][0]
-            track_info['artist'] = first_artist.get('name', 'Unknown')
+        for recording in best_result['recordings']:
+            if track_info['artist'] == 'Unknown' and 'artists' in recording and recording['artists']:
+                first_artist = recording['artists'][0]
+                if isinstance(first_artist, dict) and 'name' in first_artist:
+                    track_info['artist'] = first_artist['name']
+                elif isinstance(first_artist, str):
+                    track_info['artist'] = first_artist
+            if track_info['title'] == 'Unknown' and 'title' in recording and recording['title']:
+                track_info['title'] = recording['title']
 
-        if 'releases' in recording and recording['releases']:
-            first_release = recording['releases'][0]
-            track_info['album'] = first_release.get('title', 'Unknown')
+            if 'releasegroups' in recording and recording['releasegroups']:
+                for releasegroup in recording['releasegroups']:
+                    if track_info['artist'] == 'Unknown' and 'artists' in releasegroup and releasegroup['artists']:
+                        first_artist = releasegroup['artists'][0]
+                        if isinstance(first_artist, dict) and 'name' in first_artist:
+                            track_info['artist'] = first_artist['name']
+                        elif isinstance(first_artist, str):
+                            track_info['artist'] = first_artist
+                    if track_info['title'] == 'Unknown' and 'title' in releasegroup and releasegroup['title']:
+                        track_info['title'] = releasegroup['title']
+                    if 'releases' in releasegroup and releasegroup['releases'] and track_info['year'] is None:
+                        first_release = releasegroup['releases'][0]
+                        if 'date' in first_release and 'year' in first_release['date']:
+                            track_info['year'] = first_release['date']['year']
+                        if track_info['album'] == 'Unknown' and 'title' in first_release and first_release['title']:
+                            track_info['album'] = first_release['title']
 
-            if 'date' in first_release and 'year' in first_release['date']:
-                track_info['year'] = first_release['date']['year']
+            if track_info['artist'] != 'Unknown' and track_info['title'] != 'Unknown':
+                break
 
-        if 'tags' in recording:
-            tags = []
-            for tag in recording['tags']:
-                if 'name' in tag:
-                    tags.append(tag['name'].lower())
-            track_info['genres'] = tags[:10]
+        for recording in best_result['recordings']:
+            if 'tags' in recording:
+                tags = []
+                for tag in recording['tags']:
+                    if 'name' in tag:
+                        tags.append(tag['name'].lower())
+                track_info['genres'] = tags[:10]
+                break
 
         print(
             f"[AcoustID] Найден трек: {track_info['artist']} - {track_info['title']} (score: {track_info['score']:.2f})")
