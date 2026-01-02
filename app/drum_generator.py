@@ -6,6 +6,10 @@ import random
 from pathlib import Path
 from typing import List, Dict, Optional
 import tempfile
+from .track_detector import REQUESTS_AVAILABLE
+
+if REQUESTS_AVAILABLE:
+    import requests
 
 try:
     import librosa
@@ -108,20 +112,39 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
 
     existing_files = list(splitter_folder.glob("*.wav"))
     if existing_files:
-        print(f"[AudioSep] Файлы уже существуют в splitter, используем кэш: {existing_files}")
         for file in existing_files:
-            if "drums" in file.name.lower():
+            if "drums" in file.name.lower() or "drum" in file.name.lower():
+                print(f"[AudioSep] Кэшированный drums-стем найден (по названию): {file}")
                 return str(file)
+        print(f"[AudioSep] Файлы уже существуют в splitter (но не drums): {[f.name for f in existing_files]}")
+
+    if not AUDIO_SEPARATOR_AVAILABLE:
+        print("[AudioSep] Audio-separator недоступен, fallback на оригинальный файл")
+        return str(song_path)
 
     print("[AudioSep] Разделение через audio-separator...")
     try:
+        model_dir = "/tmp/audio-separator-models/"
+        print(f"[AudioSep] Используем локальную модель из: {model_dir}")
+
         separator = Separator(
             output_dir=str(splitter_folder),
-            output_format="WAV"
+            output_format="WAV",
+            model_file_dir=model_dir
         )
 
+        print("[AudioSep] Получение списка моделей...")
         target_model = None
-        available_models = separator.get_simplified_model_list()
+        try:
+            available_models = separator.get_simplified_model_list()
+            # print(f"[AudioSep] Доступные модели: {available_models}")
+        except Exception as e:
+            if REQUESTS_AVAILABLE and isinstance(e, requests.exceptions.ConnectionError):
+                print(f"[AudioSep] Ошибка соединения при получении списка моделей: {e}")
+            else:
+                print(f"[AudioSep] Ошибка при получении списка моделей: {e}")
+            print("[AudioSep] Fallback на оригинальный файл из-за ошибки получения моделей")
+            return str(song_path)
 
         for model in available_models:
             if 'drums' in model.lower() and ('kuielab' in model.lower() or 'drum' in model.lower()):
@@ -137,28 +160,42 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
                     break
 
         if not target_model:
-            print(f"[AudioSep] Ни одной подходящей модели не найдено")
+            print(f"[AudioSep] Ни одной подходящей модели не найдено. Доступные: {available_models}")
+            print("[AudioSep] Fallback на оригинальный файл")
             return str(song_path)
 
         print(f"[AudioSep] Загружаем модель: {target_model}")
         separator.load_model(target_model)
 
+        print(f"[AudioSep] Запуск разделения...")
         output_files = separator.separate(str(song_path))
 
-        print(f"[AudioSep] Output files returned: {output_files}")
+        print(f"[AudioSep] Output files returned by separator: {output_files}")
 
-        output_dir = splitter_folder
-        drums_files = list(output_dir.glob(f"{song_path.stem}*(Drums)*.wav"))
+        drums_files = list(splitter_folder.glob(f"{song_path.stem}*(Drums)*.wav"))
+        if not drums_files:
+            drums_files = [f for f in output_files if "Drums" in f or "drums" in f.lower()]
+            if drums_files:
+                drums_file = None
+                for f in drums_files:
+                    possible_path = splitter_folder / f
+                    if possible_path.exists():
+                        drums_file = possible_path
+                        break
+                if drums_file:
+                    drums_files = [drums_file]
+                else:
+                    drums_files = []
 
         if drums_files:
             drums_file = drums_files[0]
             import shutil
             shutil.copy2(drums_file, drums_path)
-            print(f"[AudioSep] Drums-стем успешно скопирован: {drums_path}")
+            print(f"[AudioSep] Drums-стем успешно скопирован в кэш: {drums_path}")
 
             for created_file in output_files:
-                created_path = output_dir / created_file
-                if created_path.exists():
+                created_path = splitter_folder / created_file
+                if created_path.exists() and created_path != drums_path:
                     try:
                         os.remove(created_path)
                         print(f"[AudioSep] Временный файл удален: {created_path}")
@@ -167,22 +204,24 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
 
             return str(drums_path)
         else:
+            print("[AudioSep] Не удалось найти файл drums в output директории после разделения")
             current_dir = Path(".")
             current_drums_files = list(current_dir.glob(f"*{song_path.stem}*(Drums)*.wav"))
             if current_drums_files:
                 drums_file = current_drums_files[0]
                 import shutil
                 shutil.copy2(drums_file, drums_path)
-                print(f"[AudioSep] Drums-стем найден в текущей директории и скопирован: {drums_path}")
+                print(f"[AudioSep] Drums-стем найден в текущей директории и скопирован в кэш: {drums_path}")
                 return str(drums_path)
             else:
-                print("[AudioSep] Не удалось найти файл drums в output директории")
-                all_created_files = list(output_dir.glob(f"{song_path.stem}*.*"))
-                print(f"[AudioSep] Все созданные файлы: {[f.name for f in all_created_files]}")
+                print("[AudioSep] Drums-стем не был создан успешно, fallback на оригинальный файл")
                 return str(song_path)
 
     except Exception as e:
-        print(f"[AudioSep] Ошибка при разделении: {e}")
+        if REQUESTS_AVAILABLE and isinstance(e, requests.exceptions.ConnectionError):
+            print(f"[AudioSep] Сетевая ошибка при разделении: {e}")
+        else:
+            print(f"[AudioSep] Ошибка при разделении: {e}")
         import traceback
         traceback.print_exc()
         print("[AudioSep] Fallback на оригинальный файл")
@@ -387,13 +426,6 @@ def generate_drums_notes(
     if len(notes) == 0:
         print("[DrumGen] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
-    if drums_stem_path and drums_stem_path != str(original_file_path) and Path(drums_stem_path).exists():
-        try:
-            os.remove(drums_stem_path)
-            print(f"[CLEANUP] Drums-стем удален: {drums_stem_path}")
-        except Exception as e:
-            print(f"[WARNING] Не удалось удалить drums-стем: {e}")
-
     return notes
 
 
@@ -444,7 +476,7 @@ def save_drums_notes(notes_data: List[Dict], song_path: str) -> bool:
 
 
 def load_drums_notes(song_path: str) -> Optional[List[Dict]]:
-    base_name = Path(song_path).stemS
+    base_name = Path(song_path).stem
     notes_path = TEMP_UPLOADS_DIR / base_name / "notes" / f"{base_name}_drums.json"
 
     if not notes_path.exists():

@@ -24,7 +24,7 @@ except ImportError:
     MUSICBRAINZ_AVAILABLE = False
     print("[TrackDetector] MusicBrainz не установлен (pip install musicbrainzngs)")
 
-ACOUSTID_API_KEY = "PUlkAEkjhm"
+ACOUSTID_API_KEY = "LC4M0bKfun"
 
 if MUSICBRAINZ_AVAILABLE:
     musicbrainzngs.set_useragent("RhythmFall", "1.0", "abtw324@gmail.com")
