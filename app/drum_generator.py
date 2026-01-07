@@ -1,4 +1,3 @@
-# app/drum_generator.py
 import os
 import json
 import numpy as np
@@ -137,7 +136,7 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
         target_model = None
         try:
             available_models = separator.get_simplified_model_list()
-            # print(f"[AudioSep] Доступные модели: {available_models}")
+            
         except Exception as e:
             if REQUESTS_AVAILABLE and isinstance(e, requests.exceptions.ConnectionError):
                 print(f"[AudioSep] Ошибка соединения при получении списка моделей: {e}")
@@ -228,6 +227,160 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
         return str(song_path)
 
 
+def calculate_onset_strength(y: np.ndarray, sr: int, hop_length: int = 512):
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
+    times = librosa.times_like(onset_env, sr=sr, hop_length=hop_length)
+    return times, onset_env
+
+
+def find_amplitude_at_time(y: np.ndarray, sr: int, time: float, window_ms: float = 10.0):
+    sample_idx = int(time * sr)
+    window_samples = int(window_ms / 1000.0 * sr)
+    start = max(0, sample_idx - window_samples // 2)
+    end = min(len(y), sample_idx + window_samples // 2)
+    if end > start:
+        segment = y[start:end]
+        rms = np.sqrt(np.mean(segment ** 2))
+        return rms
+    return 0.0
+
+
+def apply_frequency_filter(y: np.ndarray, sr: int, low_freq: float, high_freq: float):
+    nyquist = sr / 2
+    low = low_freq / nyquist
+    high = high_freq / nyquist
+
+    if low < 0.001:
+        low = 0.001
+    if high > 0.999:
+        high = 0.999
+
+    if low >= high:
+        return y
+
+    b, a = librosa.butter(N=4, Wn=[low, high], btype='band')
+    return scipy.signal.filtfilt(b, a, y)
+
+
+def apply_amplitude_filter(hit_times: List[float], y: np.ndarray, sr: int, percentile_threshold: float = 30.0) -> List[
+    float]:
+    if not hit_times:
+        return []
+
+    amplitudes = [find_amplitude_at_time(y, sr, time) for time in hit_times]
+    if not amplitudes:
+        return []
+
+    threshold = np.percentile(amplitudes, percentile_threshold)
+    filtered_times = [hit_times[i] for i in range(len(hit_times)) if amplitudes[i] >= threshold]
+
+    return filtered_times
+
+
+def apply_time_clustering(hit_times: List[float], y: np.ndarray, sr: int, cluster_window: float = 0.05) -> List[float]:
+    if not hit_times:
+        return []
+
+    hit_times = sorted(hit_times)
+    if not hit_times:
+        return []
+
+    clusters = []
+    current_cluster = [hit_times[0]]
+
+    for time in hit_times[1:]:
+        if time - current_cluster[-1] <= cluster_window:
+            current_cluster.append(time)
+        else:
+            
+            cluster_amplitudes = [find_amplitude_at_time(y, sr, t) for t in current_cluster]
+            best_time = current_cluster[np.argmax(cluster_amplitudes)]
+            clusters.append(best_time)
+            current_cluster = [time]
+
+    if current_cluster:
+        cluster_amplitudes = [find_amplitude_at_time(y, sr, t) for t in current_cluster]
+        best_time = current_cluster[np.argmax(cluster_amplitudes)]
+        clusters.append(best_time)
+
+    return clusters
+
+
+def remove_simultaneous_hits(kick_times: List[float], snare_times: List[float], min_separation: float = 0.02) -> tuple[
+    List[float], List[float]]:
+    filtered_kick = []
+    filtered_snare = []
+
+    all_kick = set(kick_times)
+    all_snare = set(snare_times)
+
+    for kick_time in kick_times:
+        
+        has_close_snare = any(abs(kick_time - snare_time) < min_separation for snare_time in snare_times)
+        if not has_close_snare:
+            filtered_kick.append(kick_time)
+
+    for snare_time in snare_times:
+        
+        has_close_kick = any(abs(snare_time - kick_time) < min_separation for kick_time in kick_times)
+        if not has_close_kick:
+            filtered_snare.append(snare_time)
+
+    return filtered_kick, filtered_snare
+
+
+def limit_note_density(times: List[float], min_interval: float = 0.08, max_notes_per_interval: int = 1) -> List[float]:
+    if not times:
+        return []
+
+    times = sorted(times)
+    filtered = []
+    i = 0
+
+    while i < len(times):
+        current_time = times[i]
+        filtered.append(current_time)
+
+        
+        j = i + 1
+        while j < len(times) and times[j] < current_time + min_interval:
+            j += 1
+
+        i = j
+
+    return filtered
+
+
+def limit_notes_per_beat(times: List[float], beats: np.ndarray, max_notes_per_beat: int = 1) -> List[float]:
+    if not times or len(beats) == 0:
+        return times
+
+    
+    beat_groups = {}
+    for time in times:
+        
+        closest_beat_idx = np.argmin(np.abs(beats - time))
+        closest_beat_time = beats[closest_beat_idx]
+
+        if closest_beat_time not in beat_groups:
+            beat_groups[closest_beat_time] = []
+        beat_groups[closest_beat_time].append(time)
+
+    
+    filtered_times = []
+    for beat_time, group_times in beat_groups.items():
+        if len(group_times) <= max_notes_per_beat:
+            filtered_times.extend(group_times)
+        else:
+            
+            amplitudes = [find_amplitude_at_time(y, sr, t) for t in group_times]
+            top_indices = np.argsort(amplitudes)[-max_notes_per_beat:]
+            for idx in top_indices:
+                filtered_times.append(group_times[idx])
+
+    return sorted(filtered_times)
+
+
 def generate_drums_notes(
         song_path: str,
         bpm: float,
@@ -240,6 +393,8 @@ def generate_drums_notes(
         use_filename_for_genres: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
+
+    global y, sr  
 
     if not track_info and auto_identify_track:
         print(f"[DrumGen] Автоматическая идентификация трека для: {song_path}")
@@ -347,6 +502,46 @@ def generate_drums_notes(
     raw_kick_times, raw_snare_times = detect_kick_snare_with_essentia(y, sr, analysis_path)
     print(f"[Essentia] Сырые события: {len(raw_kick_times)} kick, {len(raw_snare_times)} snare")
 
+    
+    if raw_kick_times and len(beats) > 0:
+        raw_kick_times = limit_notes_per_beat(raw_kick_times, beats, max_notes_per_beat=1)
+        print(f"[BeatLimit] После ограничения по битам: {len(raw_kick_times)} kick")
+
+    if raw_snare_times and len(beats) > 0:
+        raw_snare_times = limit_notes_per_beat(raw_snare_times, beats, max_notes_per_beat=1)
+        print(f"[BeatLimit] После ограничения по битам: {len(raw_snare_times)} snare")
+
+    
+    if raw_kick_times:
+        raw_kick_times = apply_amplitude_filter(raw_kick_times, y, sr,
+                                                percentile_threshold=25.0 * genre_params.get(
+                                                    'kick_sensitivity_multiplier', 1.0))
+        print(f"[AmplitudeFilter] После фильтрации по амплитуде: {len(raw_kick_times)} kick")
+
+    if raw_snare_times:
+        raw_snare_times = apply_amplitude_filter(raw_snare_times, y, sr,
+                                                 percentile_threshold=25.0 * genre_params.get(
+                                                     'snare_sensitivity_multiplier', 1.0))
+        print(f"[AmplitudeFilter] После фильтрации по амплитуде: {len(raw_snare_times)} snare")
+
+    
+    if raw_kick_times:
+        raw_kick_times = apply_time_clustering(raw_kick_times, y, sr, cluster_window=0.03)
+        print(f"[TimeCluster] После кластеризации: {len(raw_kick_times)} kick")
+
+    if raw_snare_times:
+        raw_snare_times = apply_time_clustering(raw_snare_times, y, sr, cluster_window=0.03)
+        print(f"[TimeCluster] После кластеризации: {len(raw_snare_times)} snare")
+
+    
+    if raw_kick_times:
+        raw_kick_times = limit_note_density(raw_kick_times, min_interval=0.08)
+        print(f"[DensityLimit] После ограничения плотности: {len(raw_kick_times)} kick")
+
+    if raw_snare_times:
+        raw_snare_times = limit_note_density(raw_snare_times, min_interval=0.08)
+        print(f"[DensityLimit] После ограничения плотности: {len(raw_snare_times)} snare")
+
     def sync_to_beats(hit_times: List[float]) -> List[float]:
         if len(beats) == 0 or not hit_times:
             return hit_times
@@ -356,6 +551,7 @@ def generate_drums_notes(
             min_dist = np.min(distances)
             if min_dist <= sync_tolerance:
                 synced.append(float(beats[np.argmin(distances)]))
+        
         unique = []
         for t in sorted(synced):
             if not unique or abs(t - unique[-1]) > 0.01:
@@ -366,6 +562,9 @@ def generate_drums_notes(
     synced_snares = sync_to_beats(raw_snare_times)
 
     print(f"[DrumGen] После синхронизации: {len(synced_kicks)} kick, {len(synced_snares)} snare")
+
+    
+    synced_kicks, synced_snares = remove_simultaneous_hits(synced_kicks, synced_snares, min_separation=0.02)
 
     if len(synced_kicks) + len(synced_snares) == 0:
         print("[DrumGen] Нет нот после синхронизации — используем сырые")
@@ -388,7 +587,8 @@ def generate_drums_notes(
         if adjusted_time <= 0:
             continue
 
-        available_lanes = [lane for lane in range(lanes) if last_lane_usage.get(lane, -999) < adjusted_time]
+        available_lanes = [lane for lane in range(lanes) if
+                           last_lane_usage.get(lane, -999) < adjusted_time - 0.05]  
         if available_lanes:
             lane = random.choice(available_lanes)
         else:
