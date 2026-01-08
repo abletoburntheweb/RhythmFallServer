@@ -1,7 +1,10 @@
+import json
+
 import requests
 import time
 from typing import List, Dict, Optional
 import musicbrainzngs
+from pathlib import Path
 
 
 class MultiSourceGenreDetector:
@@ -162,72 +165,22 @@ class MultiSourceGenreDetector:
         }
 
 
+def load_music_genres() -> List[str]:
+    try:
+        config_path = Path(__file__).parent / "music_genres.json"
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get('music_genres', [])
+    except FileNotFoundError:
+        print(f"[GenreDetector] Файл music_genres.json не найден")
+        return []
+    except Exception as e:
+        print(f"[GenreDetector] Ошибка загрузки жанров из JSON: {e}")
+        return []
+
+
 def detect_genres(artist: str, title: str) -> List[str]:
-    music_genres = [
-        'pop', 'rock', 'hip hop', 'rap', 'rnb', 'r&b', 'electronic', 'dance',
-        'techno', 'house', 'trance', 'dubstep', 'trap', 'reggae', 'ska',
-        'punk', 'metal', 'heavy metal', 'death metal', 'black metal', 'folk',
-        'country', 'jazz', 'blues', 'soul', 'funk', 'disco', 'latin', 'reggaeton',
-        'k-pop', 'kpop', 'korean pop', 'j-pop', 'jpop', 'anime', 'ost', 'soundtrack',
-        'classical', 'ambient', 'chillout', 'lofi', 'indie', 'alternative', 'punk rock',
-        'grunge', 'synthwave', 'retro', 'synthpop', 'new wave', 'industrial',
-        'gothic', 'darkwave', 'breakbeat', 'drum and bass', 'dnb', 'hardcore',
-        'hardstyle', 'trance', 'progressive house', 'deep house', 'minimal techno',
-        'acid jazz', 'bossa nova', 'salsa', 'merengue', 'cumbia', 'flamenco',
-        'gospel', 'guitar', 'piano', 'orchestral', 'symphonic', 'choir', 'acoustic',
-        'experimental', 'avant-garde', 'noise', 'grime', 'uk garage', '2-step',
-        'downtempo', 'trip hop', 'nu jazz', 'broken beat', 'jungle', 'ragga jungle',
-        'drone', 'post-rock', 'math rock', 'emo', 'post-hardcore', 'screamo',
-        'metalcore', 'deathcore', 'mathcore', 'southern rock', 'blues rock',
-        'psychedelic', 'stoner rock', 'space rock', 'krautrock', 'shoegaze',
-        'dream pop', 'art rock', 'prog rock', 'prog metal', 'symphonic metal',
-        'power metal', 'folk metal', 'celtic', 'bluegrass', 'country rock',
-        'surf rock', 'garage rock', 'psychobilly', 'rockabilly', 'swing',
-        'big band', 'bebop', 'free jazz', 'fusion', 'smooth jazz', 'acid jazz',
-        'afrobeat', 'afropop', 'world music', 'ethnic', 'tribal', 'medieval',
-        'renaissance', 'baroque', 'classical period', 'romantic era', 'modern classical',
-        'contemporary classical', 'minimalism', 'serialism', 'electro', 'electronica',
-        'idm', 'glitch', 'chip tune', 'video game music', 'chiptune', 'synthesizer',
-        'vocal', 'a cappella', 'barbershop', 'doom metal', 'sludge metal', 'stoner metal',
-        'folk punk', 'anti-folk', 'neofolk', 'dark folk', 'neoclassical', 'dark ambient',
-        'ritual ambient', 'martial industrial', 'power electronics', 'noise rock',
-        'post-punk', 'new romantic', 'coldwave', 'ethereal wave', 'dark wave',
-        'ebm', 'aggrotech', 'futurepop', 'synthpop', 'indietronica', 'skate punk',
-        'thrash metal', 'speed metal', 'blackened death metal', 'symphonic black metal',
-        'melodic death metal', 'technical death metal', 'brutal death metal',
-        'groove metal', 'nu metal', 'rap rock', 'rap metal', 'alternative metal',
-        'funk metal', 'rapcore', 'crunk', 'crunkcore', 'hyphy', 'snap music',
-        'bounce music', 'trap music', 'drill', 'cloud rap', 'chillwave', 'witch house',
-        'dub', 'dub techno', 'minimal', 'microhouse', 'tech house', 'deep house',
-        'future house', 'tropical house', 'melodic dubstep', 'brostep', 'riddim',
-        'chillstep', 'wonky', 'footwork', 'juke', 'ghetto house', 'gabber',
-        'happy hardcore', 'uk hard house', 'breakcore', 'nintendocore', 'nerdcore',
-        'chiptune', 'bitpop', 'game boy music', 'nintendo', 'sega', 'playstation',
-        'xbox', 'arcade', 'retro gaming', 'anime rock', 'j-rock', 'visual kei',
-        'japanese rock', 'korean rock', 'c-pop', 'mandopop', 'cantopop', 'hk-pop',
-        'manilla sound', 'pinoy rock', 'pinoy pop', 'filmi', 'bollywood', 'tollywood',
-        'punjabi', 'desi', 'bhangra', 'qawwali', 'sufi', 'arabic', 'persian',
-        'turkish', 'greek', 'balkan', 'klezmer', 'roma', 'flamenco', 'andalusian',
-        'north african', 'west african', 'afrobeat', 'afrofunk', 'afropop', 'highlife',
-        'juju', 'makossa', 'soukous', 'raï', 'chaabi', 'malouf', 'tarab', 'fado',
-        'bossa nova', 'samba', 'forró', 'frevo', 'maracatu', 'axé', 'carimbó',
-        'candombe', 'milonga', 'tango', 'nuevo tango', 'bandoneón', 'chamamé',
-        'cumbia', 'vallenato', 'porro', 'guaracha', 'son', 'mariachi', 'ranchera',
-        'norteño', 'banda', 'corrido', 'bolero', 'trova', 'salsa', 'salsa romántica',
-        'timba', 'merengue', 'bachata', 'reggaeton', 'dembow', 'latin trap', 'urbano',
-        'regional mexican', 'tejano', 'conjunto', 'chicago house', 'detroit techno',
-        'acid house', 'rave', 'breakbeat', 'big beat', 'breaks', 'nu breaks',
-        'breakcore', 'russian breakcore', 'norsk bølge', 'kwaito', 'shangaan electro',
-        'bassline', 'speed garage', '2-step garage', 'grime', 'bashment', 'ragga',
-        'uk funky', 'electro swing', 'gypsy jazz', 'hot club jazz', 'western swing',
-        'cowboy', 'cowpunk', 'alt-country', 'country rap', 'country rock', 'americana',
-        'blue-eyed soul', 'northern soul', 'motown', 'urban contemporary', 'quiet storm',
-        'contemporary r&b', 'neo soul', 'gospel rap', 'christian hip hop', 'ccm',
-        'worship', 'praise', 'christian rock', 'christian metal', 'christian punk',
-        'christian alternative', 'christian pop', 'gospel blues', 'spirituals',
-        'contemporary christian', 'christian ska', 'christian reggae', 'christian punk',
-        'christian hardcore', 'christian metalcore', 'christian deathcore'
-    ]
+    music_genres = load_music_genres()
 
     detector = MultiSourceGenreDetector()
     results = detector.detect_all_genres(artist, title)
@@ -244,9 +197,4 @@ def detect_genres(artist: str, title: str) -> List[str]:
             if results['by_source'][source]:
                 return results['by_source'][source][:3]
 
-    return filtered_genres[:5]  # Максимум 5 подходящих жанров
-
-
-if __name__ == "__main__":
-    genres = detect_genres("Stray Kids", "Divine")
-    print(f"Финальные жанры: {genres}")
+    return filtered_genres[:5]
