@@ -1,3 +1,4 @@
+
 import os
 import json
 import numpy as np
@@ -78,7 +79,43 @@ def load_genre_configs():
                 "snare_sensitivity_multiplier": 1.0,
                 "pattern_complexity": "medium",
                 "kick_priority": False,
-                "sync_tolerance_multiplier": 1.0
+                "sync_tolerance_multiplier": 1.0,
+                "drum_start_window": 4.0,
+                "drum_density_threshold": 0.5,
+                "confidence_threshold": 0.3,
+                "max_hits_per_second": 4,  
+                "min_note_distance": 0.05,  
+                "pattern_style": "groove"  
+            },
+            "electronic": {
+                "kick_sensitivity_multiplier": 1.2,
+                "snare_sensitivity_multiplier": 1.1,
+                "pattern_complexity": "high",
+                "kick_priority": True,
+                "sync_tolerance_multiplier": 0.8,
+                "max_hits_per_second": 6,
+                "min_note_distance": 0.04,
+                "pattern_style": "precise"
+            },
+            "rock": {
+                "kick_sensitivity_multiplier": 1.0,
+                "snare_sensitivity_multiplier": 1.0,
+                "pattern_complexity": "medium",
+                "kick_priority": False,
+                "sync_tolerance_multiplier": 1.0,
+                "max_hits_per_second": 4,
+                "min_note_distance": 0.05,
+                "pattern_style": "groove"
+            },
+            "k-pop": {
+                "kick_sensitivity_multiplier": 1.1,
+                "snare_sensitivity_multiplier": 1.2,
+                "pattern_complexity": "high",
+                "kick_priority": False,
+                "sync_tolerance_multiplier": 0.9,
+                "max_hits_per_second": 5,
+                "min_note_distance": 0.045,
+                "pattern_style": "precise"
             }
         }
 
@@ -92,11 +129,83 @@ def get_genre_params(genres: List[str]) -> Dict:
 
     genres_lower = [g.lower() for g in genres]
 
+    
     for genre in genres_lower:
         if genre in GENRE_CONFIGS:
+            print(f"[GenreParams] Используем параметры для жанра: {genre}")
             return GENRE_CONFIGS[genre]
 
     return GENRE_CONFIGS.get("default", {})
+
+
+def detect_drum_section_start(times: List[float], window_duration: float = 2.0, threshold: float = 0.5) -> float:
+    if len(times) < 2:
+        return 0.0
+
+    times = np.array(times)
+    start_time = 0.0
+    end_time = max(times)
+
+    
+    step = window_duration / 2  
+    current_time = start_time
+
+    while current_time < end_time:
+        window_start = current_time
+        window_end = current_time + window_duration
+
+        
+        hits_in_window = sum(1 for t in times if window_start <= t < window_end)
+        density = hits_in_window / window_duration  
+
+        if density >= threshold:
+            print(f"[DrumStart] Найдено устойчивое начало ударных: {window_start:.2f}s (плотность: {density:.2f}/s)")
+            return window_start
+
+        current_time += step
+
+    
+    return 0.0
+
+
+def apply_temporal_filter(events: List[float], min_distance: float = 0.05) -> List[float]:
+    if not events:
+        return events
+
+    filtered = [events[0]]  
+
+    for event in events[1:]:
+        if event - filtered[-1] >= min_distance:
+            filtered.append(event)
+
+    return filtered
+
+
+def apply_groove_pattern(events: List[float], pattern_style: str = "groove", bpm: float = 120.0) -> List[float]:
+    if not events:
+        return events
+
+    if pattern_style == "precise":
+        
+        return events
+    elif pattern_style == "sparse":
+        
+        return events[::2]
+    else:  
+        
+        grid_step = 60.0 / bpm  
+        grooved_events = []
+
+        for event in events:
+            
+            grid_position = round(event / (grid_step / 2)) * (grid_step / 2)  
+            
+            groove_amount = 0.02  
+            offset = random.uniform(-groove_amount, groove_amount) * grid_step
+            grooved_time = grid_position + offset
+            grooved_events.append(max(0, grooved_time))  
+
+        return sorted(grooved_events)
 
 
 def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
@@ -227,160 +336,6 @@ def separate_drums_with_audiosep(song_path: str, song_folder: Path) -> str:
         return str(song_path)
 
 
-def calculate_onset_strength(y: np.ndarray, sr: int, hop_length: int = 512):
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
-    times = librosa.times_like(onset_env, sr=sr, hop_length=hop_length)
-    return times, onset_env
-
-
-def find_amplitude_at_time(y: np.ndarray, sr: int, time: float, window_ms: float = 10.0):
-    sample_idx = int(time * sr)
-    window_samples = int(window_ms / 1000.0 * sr)
-    start = max(0, sample_idx - window_samples // 2)
-    end = min(len(y), sample_idx + window_samples // 2)
-    if end > start:
-        segment = y[start:end]
-        rms = np.sqrt(np.mean(segment ** 2))
-        return rms
-    return 0.0
-
-
-def apply_frequency_filter(y: np.ndarray, sr: int, low_freq: float, high_freq: float):
-    nyquist = sr / 2
-    low = low_freq / nyquist
-    high = high_freq / nyquist
-
-    if low < 0.001:
-        low = 0.001
-    if high > 0.999:
-        high = 0.999
-
-    if low >= high:
-        return y
-
-    b, a = librosa.butter(N=4, Wn=[low, high], btype='band')
-    return scipy.signal.filtfilt(b, a, y)
-
-
-def apply_amplitude_filter(hit_times: List[float], y: np.ndarray, sr: int, percentile_threshold: float = 30.0) -> List[
-    float]:
-    if not hit_times:
-        return []
-
-    amplitudes = [find_amplitude_at_time(y, sr, time) for time in hit_times]
-    if not amplitudes:
-        return []
-
-    threshold = np.percentile(amplitudes, percentile_threshold)
-    filtered_times = [hit_times[i] for i in range(len(hit_times)) if amplitudes[i] >= threshold]
-
-    return filtered_times
-
-
-def apply_time_clustering(hit_times: List[float], y: np.ndarray, sr: int, cluster_window: float = 0.05) -> List[float]:
-    if not hit_times:
-        return []
-
-    hit_times = sorted(hit_times)
-    if not hit_times:
-        return []
-
-    clusters = []
-    current_cluster = [hit_times[0]]
-
-    for time in hit_times[1:]:
-        if time - current_cluster[-1] <= cluster_window:
-            current_cluster.append(time)
-        else:
-            
-            cluster_amplitudes = [find_amplitude_at_time(y, sr, t) for t in current_cluster]
-            best_time = current_cluster[np.argmax(cluster_amplitudes)]
-            clusters.append(best_time)
-            current_cluster = [time]
-
-    if current_cluster:
-        cluster_amplitudes = [find_amplitude_at_time(y, sr, t) for t in current_cluster]
-        best_time = current_cluster[np.argmax(cluster_amplitudes)]
-        clusters.append(best_time)
-
-    return clusters
-
-
-def remove_simultaneous_hits(kick_times: List[float], snare_times: List[float], min_separation: float = 0.02) -> tuple[
-    List[float], List[float]]:
-    filtered_kick = []
-    filtered_snare = []
-
-    all_kick = set(kick_times)
-    all_snare = set(snare_times)
-
-    for kick_time in kick_times:
-        
-        has_close_snare = any(abs(kick_time - snare_time) < min_separation for snare_time in snare_times)
-        if not has_close_snare:
-            filtered_kick.append(kick_time)
-
-    for snare_time in snare_times:
-        
-        has_close_kick = any(abs(snare_time - kick_time) < min_separation for kick_time in kick_times)
-        if not has_close_kick:
-            filtered_snare.append(snare_time)
-
-    return filtered_kick, filtered_snare
-
-
-def limit_note_density(times: List[float], min_interval: float = 0.08, max_notes_per_interval: int = 1) -> List[float]:
-    if not times:
-        return []
-
-    times = sorted(times)
-    filtered = []
-    i = 0
-
-    while i < len(times):
-        current_time = times[i]
-        filtered.append(current_time)
-
-        
-        j = i + 1
-        while j < len(times) and times[j] < current_time + min_interval:
-            j += 1
-
-        i = j
-
-    return filtered
-
-
-def limit_notes_per_beat(times: List[float], beats: np.ndarray, max_notes_per_beat: int = 1) -> List[float]:
-    if not times or len(beats) == 0:
-        return times
-
-    
-    beat_groups = {}
-    for time in times:
-        
-        closest_beat_idx = np.argmin(np.abs(beats - time))
-        closest_beat_time = beats[closest_beat_idx]
-
-        if closest_beat_time not in beat_groups:
-            beat_groups[closest_beat_time] = []
-        beat_groups[closest_beat_time].append(time)
-
-    
-    filtered_times = []
-    for beat_time, group_times in beat_groups.items():
-        if len(group_times) <= max_notes_per_beat:
-            filtered_times.extend(group_times)
-        else:
-            
-            amplitudes = [find_amplitude_at_time(y, sr, t) for t in group_times]
-            top_indices = np.argsort(amplitudes)[-max_notes_per_beat:]
-            for idx in top_indices:
-                filtered_times.append(group_times[idx])
-
-    return sorted(filtered_times)
-
-
 def generate_drums_notes(
         song_path: str,
         bpm: float,
@@ -393,8 +348,6 @@ def generate_drums_notes(
         use_filename_for_genres: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
-
-    global y, sr  
 
     if not track_info and auto_identify_track:
         print(f"[DrumGen] Автоматическая идентификация трека для: {song_path}")
@@ -414,17 +367,21 @@ def generate_drums_notes(
 
     if use_filename_for_genres and not all_genres:
         if GENRE_DETECTION_AVAILABLE:
-            filename_genres = detect_genres(Path(song_path).name, track_info)
+            
+            filename_genres = detect_genres(track_info['artist'], track_info['title']) if track_info and track_info.get(
+                'success') and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown' else []
             if filename_genres:
                 all_genres.extend(filename_genres)
-                print(f"[DrumGen] Жанры из названия файла: {filename_genres}")
+                print(f"[DrumGen] Жанры из Spotify: {filename_genres}")
+            else:
+                print("[DrumGen] Жанры из Spotify не найдены")
 
     unique_genres = list(set([g for g in all_genres if g and g.lower() != 'unknown']))
 
     genre_params = {}
     if unique_genres:
         genre_params = get_genre_params(unique_genres)
-        print(f"[DrumGen] Применены параметры для жанра: {unique_genres[0]}")
+        print(f"[DrumGen] Применены параметры для жанра: {unique_genres[0] if unique_genres else 'default'}")
         print(f"[DrumGen] Параметры: {genre_params}")
 
         if 'sync_tolerance_multiplier' in genre_params:
@@ -503,44 +460,47 @@ def generate_drums_notes(
     print(f"[Essentia] Сырые события: {len(raw_kick_times)} kick, {len(raw_snare_times)} snare")
 
     
-    if raw_kick_times and len(beats) > 0:
-        raw_kick_times = limit_notes_per_beat(raw_kick_times, beats, max_notes_per_beat=1)
-        print(f"[BeatLimit] После ограничения по битам: {len(raw_kick_times)} kick")
-
-    if raw_snare_times and len(beats) > 0:
-        raw_snare_times = limit_notes_per_beat(raw_snare_times, beats, max_notes_per_beat=1)
-        print(f"[BeatLimit] После ограничения по битам: {len(raw_snare_times)} snare")
 
     
-    if raw_kick_times:
-        raw_kick_times = apply_amplitude_filter(raw_kick_times, y, sr,
-                                                percentile_threshold=25.0 * genre_params.get(
-                                                    'kick_sensitivity_multiplier', 1.0))
-        print(f"[AmplitudeFilter] После фильтрации по амплитуде: {len(raw_kick_times)} kick")
+    drum_start_window = genre_params.get('drum_start_window', 4.0)
+    drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
 
-    if raw_snare_times:
-        raw_snare_times = apply_amplitude_filter(raw_snare_times, y, sr,
-                                                 percentile_threshold=25.0 * genre_params.get(
-                                                     'snare_sensitivity_multiplier', 1.0))
-        print(f"[AmplitudeFilter] После фильтрации по амплитуде: {len(raw_snare_times)} snare")
+    print(
+        f"[DrumStart] Ищем начало ударных с параметрами: window={drum_start_window}s, threshold={drum_density_threshold}/s")
 
     
-    if raw_kick_times:
-        raw_kick_times = apply_time_clustering(raw_kick_times, y, sr, cluster_window=0.03)
-        print(f"[TimeCluster] После кластеризации: {len(raw_kick_times)} kick")
-
-    if raw_snare_times:
-        raw_snare_times = apply_time_clustering(raw_snare_times, y, sr, cluster_window=0.03)
-        print(f"[TimeCluster] После кластеризации: {len(raw_snare_times)} snare")
+    all_raw_events = sorted(raw_kick_times + raw_snare_times)
+    drum_section_start = detect_drum_section_start(all_raw_events, drum_start_window, drum_density_threshold)
 
     
-    if raw_kick_times:
-        raw_kick_times = limit_note_density(raw_kick_times, min_interval=0.08)
-        print(f"[DensityLimit] После ограничения плотности: {len(raw_kick_times)} kick")
+    filtered_kicks = [t for t in raw_kick_times if t >= drum_section_start]
+    filtered_snares = [t for t in raw_snare_times if t >= drum_section_start]
 
-    if raw_snare_times:
-        raw_snare_times = limit_note_density(raw_snare_times, min_interval=0.08)
-        print(f"[DensityLimit] После ограничения плотности: {len(raw_snare_times)} snare")
+    print(
+        f"[DrumStart] Отфильтровано до начала ударной секции: {len(raw_kick_times)}->{len(filtered_kicks)} kicks, {len(raw_snare_times)}->{len(filtered_snares)} snares")
+
+    
+    max_hits_per_second = genre_params.get('max_hits_per_second', 4)
+    min_note_distance = genre_params.get('min_note_distance', 0.05)
+    pattern_style = genre_params.get('pattern_style', 'groove')
+
+    print(
+        f"[GrooveFilter] Применяем ограничения: max_hits={max_hits_per_second}/s, min_distance={min_note_distance}s, style={pattern_style}")
+
+    
+    final_kicks = apply_temporal_filter(sorted(filtered_kicks), min_note_distance)
+    final_snares = apply_temporal_filter(sorted(filtered_snares), min_note_distance)
+
+    print(
+        f"[TemporalFilter] После фильтрации расстояния: {len(filtered_kicks)}->{len(final_kicks)} kicks, {len(filtered_snares)}->{len(final_snares)} snares")
+
+    
+    print(f"[PatternApply] Применяем паттерн стиль: {pattern_style}")
+    grooved_kicks = apply_groove_pattern(final_kicks, pattern_style, bpm)
+    grooved_snares = apply_groove_pattern(final_snares, pattern_style, bpm)
+
+    print(
+        f"[PatternApplied] После применения паттерна: {len(final_kicks)}->{len(grooved_kicks)} kicks, {len(final_snares)}->{len(grooved_snares)} snares")
 
     def sync_to_beats(hit_times: List[float]) -> List[float]:
         if len(beats) == 0 or not hit_times:
@@ -551,26 +511,25 @@ def generate_drums_notes(
             min_dist = np.min(distances)
             if min_dist <= sync_tolerance:
                 synced.append(float(beats[np.argmin(distances)]))
-        
         unique = []
         for t in sorted(synced):
             if not unique or abs(t - unique[-1]) > 0.01:
                 unique.append(t)
         return unique
 
-    synced_kicks = sync_to_beats(raw_kick_times)
-    synced_snares = sync_to_beats(raw_snare_times)
+    
+    synced_kicks = sync_to_beats(grooved_kicks)
+    synced_snares = sync_to_beats(grooved_snares)
 
     print(f"[DrumGen] После синхронизации: {len(synced_kicks)} kick, {len(synced_snares)} snare")
 
-    
-    synced_kicks, synced_snares = remove_simultaneous_hits(synced_kicks, synced_snares, min_separation=0.02)
-
     if len(synced_kicks) + len(synced_snares) == 0:
-        print("[DrumGen] Нет нот после синхронизации — используем сырые")
-        synced_kicks = raw_kick_times
-        synced_snares = raw_snare_times
+        print("[DrumGen] Нет нот после синхронизации — используем грув-паттерн")
+        
+        synced_kicks = grooved_kicks
+        synced_snares = grooved_snares
 
+    
     all_events = []
     for t in synced_kicks:
         all_events.append({"type": "KickNote", "time": t})
@@ -587,8 +546,7 @@ def generate_drums_notes(
         if adjusted_time <= 0:
             continue
 
-        available_lanes = [lane for lane in range(lanes) if
-                           last_lane_usage.get(lane, -999) < adjusted_time - 0.05]  
+        available_lanes = [lane for lane in range(lanes) if last_lane_usage.get(lane, -999) < adjusted_time]
         if available_lanes:
             lane = random.choice(available_lanes)
         else:
@@ -611,6 +569,7 @@ def generate_drums_notes(
     print(f"   - Kick: {kicks_count} | Snare: {snares_count}")
     print(f"   - Использован файл: {analysis_path}")
     print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
+    print(f"   - BPM: {bpm}, Style: {pattern_style}")
 
     if track_info and track_info.get('success'):
         notes.append({

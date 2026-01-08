@@ -9,6 +9,7 @@ from .track_detector import identify_track
 
 try:
     from .genre_detector import detect_genres
+
     GENRE_DETECTION_AVAILABLE = True
     print("[Routes] Genre detection доступен")
 except ImportError:
@@ -128,6 +129,14 @@ def identify_track_endpoint():
 
         print(f"[TrackDetector] Successfully identified: {track_info['artist']} - {track_info['title']}")
 
+
+        if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
+            spotify_genres = detect_genres(track_info['artist'], track_info['title'])
+            if spotify_genres:
+                track_info['genres'].extend(spotify_genres)
+                track_info['genres'] = list(set(track_info['genres']))
+                print(f"[Spotify] Добавлены жанры: {spotify_genres}")
+
         return jsonify({
             "track_info": track_info,
             "status": "success"
@@ -201,6 +210,17 @@ def generate_drums():
                 print(f"[DrumGen] Identified track: {track_info['artist']} - {track_info['title']}")
                 if track_info['genres']:
                     print(f"[DrumGen] Genres from audio: {', '.join(track_info['genres'])}")
+
+
+                if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get(
+                        'title') != 'Unknown':
+                    spotify_genres = detect_genres(track_info['artist'], track_info['title'])
+                    if spotify_genres:
+                        original_genres = track_info['genres'][:]
+                        track_info['genres'].extend(spotify_genres)
+                        track_info['genres'] = list(set(track_info['genres']))
+                        if set(track_info['genres']) != set(original_genres):
+                            print(f"[Spotify] Добавлены жанры: {spotify_genres}")
 
         if bpm:
             try:
