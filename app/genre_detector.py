@@ -1,5 +1,5 @@
+# app/genre_detector.py
 import json
-
 import requests
 import time
 from typing import List, Dict, Optional
@@ -8,15 +8,40 @@ from pathlib import Path
 
 
 class MultiSourceGenreDetector:
-    def __init__(self, lastfm_api_key: str = "9f31a0bf16c699522d76e746ea2b5b90"):
-        self.lastfm_api_key = lastfm_api_key
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            module_dir = Path(__file__).parent
+            self.config_path = module_dir / "config.json"
+        else:
+            self.config_path = Path(config_path)
 
+        self.config = self._load_config()
+        self.lastfm_api_key = self.config.get("apis", {}).get("lastfm", {}).get("api_key")
         self.base_urls = {
-            'lastfm': "http://ws.audioscrobbler.com/2.0/",
-            'musicbrainz': "https://musicbrainz.org/ws/2/"
+            'lastfm': self.config.get("apis", {}).get("lastfm", {}).get("base_url",
+                                                                        "http://ws.audioscrobbler.com/2.0/"),
+            'musicbrainz': self.config.get("apis", {}).get("musicbrainz", {}).get("base_url",
+                                                                                  "https://musicbrainz.org/ws/2/")
         }
 
-        musicbrainzngs.set_useragent("RhythmFall", "1.0", "abtw324@gmail.com")
+        musicbrainzngs.set_useragent(
+            self.config.get("musicbrainz", {}).get("app_name", "RhythmFall"),
+            self.config.get("musicbrainz", {}).get("version", "1.0"),
+            self.config.get("musicbrainz", {}).get("contact", "abtw324@gmail.com")
+        )
+
+    def _load_config(self) -> Dict:
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(
+                f"[GenreDetector] Файл конфигурации {self.config_path} не найден. Используются значения по умолчанию.")
+            return {}
+        except json.JSONDecodeError as e:
+            print(
+                f"[GenreDetector] Ошибка парсинга JSON в {self.config_path}: {e}. Используются значения по умолчанию.")
+            return {}
 
     def search_lastfm(self, artist: str, title: str) -> Optional[dict]:
         if not self.lastfm_api_key:

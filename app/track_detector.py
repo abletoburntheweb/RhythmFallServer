@@ -24,10 +24,44 @@ except ImportError:
     MUSICBRAINZ_AVAILABLE = False
     print("[TrackDetector] MusicBrainz не установлен (pip install musicbrainzngs)")
 
-ACOUSTID_API_KEY = "LC4M0bKfun"
+
+def _load_config(config_path: str = None) -> Dict:
+    if config_path is None:
+        module_dir = Path(__file__).parent
+        config_file = module_dir / "config.json"
+
+        if config_file.exists():
+            path_to_load = str(config_file)
+            print(f"[TrackDetector] Используем конфиг из: {config_file}")
+        else:
+            print(f"[TrackDetector] Файл конфигурации {config_file} не найден. Используются значения по умолчанию.")
+            return {}
+    else:
+        path_to_load = config_path
+        if not Path(path_to_load).exists():
+            print(f"[TrackDetector] Файл конфигурации {path_to_load} не найден. Используются значения по умолчанию.")
+            return {}
+
+    try:
+        with open(path_to_load, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"[TrackDetector] Ошибка парсинга JSON в {path_to_load}: {e}. Используются значения по умолчанию.")
+        return {}
+    except Exception as e:
+        print(f"[TrackDetector] Ошибка при чтении {path_to_load}: {e}. Используются значения по умолчанию.")
+        return {}
+
+
+CONFIG = _load_config()
+ACOUSTID_API_KEY = CONFIG.get("apis", {}).get("acoustid", {}).get("api_key")
+ACOUSTID_BASE_URL = CONFIG.get("apis", {}).get("acoustid", {}).get("base_url", "https://api.acoustid.org/v2/")
+MB_APP_NAME = CONFIG.get("apis", {}).get("musicbrainz", {}).get("app_name", "RhythmFall")
+MB_VERSION = CONFIG.get("apis", {}).get("musicbrainz", {}).get("version", "1.0")
+MB_CONTACT = CONFIG.get("apis", {}).get("musicbrainz", {}).get("contact", "abtw324@gmail.com")
 
 if MUSICBRAINZ_AVAILABLE:
-    musicbrainzngs.set_useragent("RhythmFall", "1.0", "abtw324@gmail.com")
+    musicbrainzngs.set_useragent(MB_APP_NAME, MB_VERSION, MB_CONTACT)
 
 
 def fingerprint_audio(audio_path: str) -> tuple[Optional[float], Optional[str]]:
@@ -71,6 +105,10 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         print("[TrackDetector] Requests не доступен")
         return None
 
+    if not ACOUSTID_API_KEY:
+        print("[TrackDetector] AcoustID API ключ не предоставлен в конфиге")
+        return None
+
     try:
         print(f"[AcoustID] Анализ трека: {audio_path}")
 
@@ -84,7 +122,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         print(f"[AcoustID] Fingerprint length: {len(fingerprint) if fingerprint else 0}")
         print(f"[AcoustID] Duration type: {type(duration)}, value: {duration}")
 
-        url = "https://api.acoustid.org/v2/lookup"
+        url = f"{ACOUSTID_BASE_URL}lookup"
         data = {
             'format': 'json',
             'client': ACOUSTID_API_KEY,
@@ -93,7 +131,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'meta': 'recordings releasegroups releases tracks usermeta'
         }
 
-        print(f"[AcoustID] Request  {data}")
+        print(f"[AcoustID] Request to {url} with data: {data}")
 
         response = requests.post(url, data=data, timeout=30)
         print(f"[AcoustID] Response status: {response.status_code}")
@@ -187,6 +225,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         import traceback
         traceback.print_exc()
         return None
+
 
 def identify_track(audio_path: str) -> Dict:
     print(f"🔍 Идентификация трека: {audio_path}")

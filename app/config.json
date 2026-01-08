@@ -1,0 +1,18 @@
+{
+  "apis": {
+    "lastfm": {
+      "api_key": "9f31a0bf16c699522d76e746ea2b5b90",
+      "base_url": "http://ws.audioscrobbler.com/2.0/"
+    },
+    "musicbrainz": {
+      "base_url": "https://musicbrainz.org/ws/2/",
+      "app_name": "RhythmFall",
+      "version": "1.0",
+      "contact": "abtw324@gmail.com"
+    },
+    "acoustid": {
+      "api_key": "LC4M0bKfun",
+      "base_url": "https://api.acoustid.org/v2/"
+    }
+  }
+}
