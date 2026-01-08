@@ -30,7 +30,9 @@ def home():
             "analyze_bpm": "POST /analyze_bpm - Analyze BPM from audio",
             "generate_drums": "POST /generate_drums - Generate drum notes",
             "identify_track": "POST /identify_track - Identify track by audio",
-            "list_songs": "GET /songs - List available songs"
+            "get_genres_manual": "POST /get_genres_manual - Get genres for manually entered artist/title",
+            "list_songs": "GET /songs - List available songs",
+            "health": "GET /health - Health check"
         }
     })
 
@@ -129,7 +131,6 @@ def identify_track_endpoint():
 
         print(f"[TrackDetector] Successfully identified: {track_info['artist']} - {track_info['title']}")
 
-
         if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
             spotify_genres = detect_genres(track_info['artist'], track_info['title'])
             if spotify_genres:
@@ -154,6 +155,40 @@ def identify_track_endpoint():
                 print(f"[CLEANUP] Temporary file removed: {temp_path}")
             except Exception as e:
                 print(f"[WARNING] Failed to remove temp file: {e}")
+
+
+@bp.route("/get_genres_manual", methods=["POST"])
+def get_genres_manual():
+    try:
+        data = request.get_json(force=True)
+        artist = data.get("artist")
+        title = data.get("title")
+
+        if not artist or not title:
+            return jsonify({"error": "Both 'artist' and 'title' are required."}), 400
+
+        print(f"[ManualGenreDetect] Getting genres for: {artist} - {title}")
+
+        detected_genres = []
+        if GENRE_DETECTION_AVAILABLE:
+            detected_genres = detect_genres(artist, title)
+        else:
+            print("[ManualGenreDetect] Genre detection not available.")
+
+        print(f"[ManualGenreDetect] Detected genres: {detected_genres}")
+
+        return jsonify({
+            "artist": artist,
+            "title": title,
+            "genres": detected_genres,
+            "status": "success"
+        })
+
+    except Exception as e:
+        print(f"[ManualGenreDetect] Exception: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @bp.route("/generate_drums", methods=["POST"])
@@ -210,7 +245,6 @@ def generate_drums():
                 print(f"[DrumGen] Identified track: {track_info['artist']} - {track_info['title']}")
                 if track_info['genres']:
                     print(f"[DrumGen] Genres from audio: {', '.join(track_info['genres'])}")
-
 
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get(
                         'title') != 'Unknown':
@@ -368,5 +402,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/get_genres_manual", "/songs", "/health"]
     })

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional
 import tempfile
 import subprocess
+import re
 
 try:
     import requests
@@ -131,15 +132,15 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'meta': 'recordings releasegroups releases tracks usermeta'
         }
 
-        print(f"[AcoustID] Request to {url} with data: {data}")
+        print(f"[AcoustID] Request to {url} with  {data}")
 
         response = requests.post(url, data=data, timeout=30)
         print(f"[AcoustID] Response status: {response.status_code}")
-        print(f"[AcoustID] Response text: {response.text}")
         response.raise_for_status()
 
         result = response.json()
-        print(f"[AcoustID] API response: {result}")
+        print(
+            f"[AcoustID] API response: {{'results_count': {len(result.get('results', []))}, 'status': '{result.get('status')}'}}")
 
         if not result or 'results' not in result:
             print("[AcoustID] Нет результатов")
@@ -149,10 +150,71 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             print("[AcoustID] Результаты пусты")
             return None
 
-        best_result = result['results'][0]
+        filename_no_ext = Path(audio_path).stem.lower()
+
+        filename_words = set(re.split(r'[ -_]+', filename_no_ext.lower()))
+        filename_words.discard('cutted')
+        filename_words.discard('cut')
+
+        potential_results = result['results']
+        best_result = None
+        best_combined_score = -1
+
+        for res in potential_results:
+            if 'recordings' in res and res['recordings']:
+                recording = res['recordings'][0]
+
+                artist_name = 'Unknown'
+                title_name = 'Unknown'
+
+                if 'artists' in recording and recording['artists']:
+                    first_artist = recording['artists'][0]
+                    if isinstance(first_artist, dict) and 'name' in first_artist:
+                        artist_name = first_artist['name']
+                    elif isinstance(first_artist, str):
+                        artist_name = first_artist
+
+                if 'title' in recording and recording['title']:
+                    title_name = recording['title']
+
+                result_text = f"{artist_name} {title_name}".lower()
+                result_words = set(re.split(r'[ -_]+', result_text))
+
+                match_count = len(filename_words.intersection(result_words))
+                total_filename_words = len(filename_words)
+
+                match_threshold = 0.5
+                sufficient_match = total_filename_words > 0 and (match_count / total_filename_words) >= match_threshold
+
+                current_score = res.get('score', 0)
+
+                if sufficient_match:
+                    match_factor = match_count / total_filename_words if total_filename_words > 0 else 0
+                    combined_score = current_score + match_factor * 0.1
+
+                    if combined_score > best_combined_score:
+                        best_result = res
+                        best_combined_score = combined_score
+                        print(
+                            f"[AcoustID] Найдено лучшее совпадение: {artist_name} - {title_name}, score: {current_score:.2f}, match_words: {match_count}/{total_filename_words}, combined: {combined_score:.3f}")
+
+        if not best_result:
+            print(
+                "[AcoustID] Ни один результат не прошёл порог совпадения слов с именем файла. Выбираем по наивысшему score.")
+            for res in potential_results:
+                current_score = res.get('score', 0)
+                if current_score > best_combined_score:
+                    best_result = res
+                    best_combined_score = current_score
+            if best_result:
+                print(f"[AcoustID] Выбран результат с наивысшим score: {best_result.get('score', 0):.2f}")
+            else:
+                print("[AcoustID] Ни один результат не найден.")
+                return None
+
 
         if 'recordings' not in best_result or not best_result['recordings']:
-            print("[AcoustID] Нет информации о записи")
+            print("[AcoustID] Нет информации о записи в лучшем результате")
             return None
 
         track_info = {
@@ -166,6 +228,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'duration': duration,
             'success': True
         }
+
 
         for recording in best_result['recordings']:
             if track_info['artist'] == 'Unknown' and 'artists' in recording and recording['artists']:
