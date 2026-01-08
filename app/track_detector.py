@@ -6,7 +6,6 @@ from typing import Dict, Optional
 import tempfile
 import subprocess
 import re
-import difflib
 
 try:
     import requests
@@ -114,88 +113,9 @@ def extract_artist_title_from_filename(filename: str) -> tuple[str, str]:
         return "Unknown", stem
 
 
-def find_closest_match_from_local_metadata(audio_path: str, local_metadata_path: str) -> Optional[Dict]:
-    if not Path(local_metadata_path).exists():
-        print(f"[TrackDetector] Локальный файл метаданных не найден: {local_metadata_path}")
-        return None
-
-    try:
-        with open(local_metadata_path, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
-    except json.JSONDecodeError:
-        print(f"[TrackDetector] Ошибка парсинга JSON в локальном файле метаданных: {local_metadata_path}")
-        return None
-
-    filename_no_ext = Path(audio_path).stem.lower()
-    potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
-    potential_artist_lower = potential_artist.lower()
-    potential_title_lower = potential_title.lower()
-
-    print(f"[TrackDetector] Ищем совпадения для: artist='{potential_artist}', title='{potential_title}' в {local_metadata_path}")
-
-    known_artists = set()
-    known_titles = set()
-    lookup_dict = {}
-
-    for path_key, meta in metadata.items():
-        artist = meta.get('artist', 'Неизвестен').lower()
-        title = meta.get('title', 'Без названия').lower()
-        if artist != 'неизвестен' or title != 'без названия':
-            known_artists.add(artist)
-            known_titles.add(title)
-            lookup_key = f"{artist} - {title}"
-            if lookup_key not in lookup_dict:
-                lookup_dict[lookup_key] = meta
-            lookup_key_reverse = f"{title} - {artist}"
-            if lookup_key_reverse not in lookup_dict:
-                lookup_dict[lookup_key_reverse] = meta
-
-    closest_artist = None
-    closest_title = None
-
-    if potential_artist != "Unknown":
-        closest_artist_matches = difflib.get_close_matches(potential_artist_lower, known_artists, n=1, cutoff=0.3)
-        if closest_artist_matches:
-            closest_artist = closest_artist_matches[0]
-            print(f"[TrackDetector] Найден ближайший артист: {closest_artist} (из {potential_artist_lower})")
-
-    if potential_title != "Unknown":
-        closest_title_matches = difflib.get_close_matches(potential_title_lower, known_titles, n=1, cutoff=0.3)
-        if closest_title_matches:
-            closest_title = closest_title_matches[0]
-            print(f"[TrackDetector] Найдено ближайшее название: {closest_title} (из {potential_title_lower})")
-
-    if closest_artist and closest_title:
-        lookup_key1 = f"{closest_artist} - {closest_title}"
-        lookup_key2 = f"{closest_title} - {closest_artist}"
-
-        found_meta = lookup_dict.get(lookup_key1) or lookup_dict.get(lookup_key2)
-
-        if found_meta:
-            print(f"[TrackDetector] Найдено совпадение в локальных метаданных: {found_meta.get('artist')} - {found_meta.get('title')}")
-            return {
-                'title': found_meta.get('title', 'Unknown'),
-                'artist': found_meta.get('artist', 'Unknown'),
-                'album': found_meta.get('album', 'Unknown'),
-                'year': found_meta.get('year', 'Unknown'),
-                'genres': found_meta.get('genres', []),
-                'acoustid_id': None,
-                'score': 0.5,
-                'duration': None,
-                'success': True
-            }
-
-    print("[TrackDetector] Совпадений в локальных метаданных не найдено.")
-    return None
-
-
-def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = None) -> Optional[Dict]:
+def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
     if not REQUESTS_AVAILABLE:
         print("[TrackDetector] Requests не доступен")
-        if local_metadata_path:
-            result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-            if result:
-                return result
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
             'title': potential_title,
@@ -204,17 +124,13 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
             'year': 'Unknown',
             'genres': [],
             'acoustid_id': None,
-            'score': 0.1,
+            'score': 0,
             'duration': None,
-            'success': True
+            'success': False
         }
 
     if not ACOUSTID_API_KEY:
         print("[TrackDetector] AcoustID API ключ не предоставлен в конфиге")
-        if local_metadata_path:
-            result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-            if result:
-                return result
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
             'title': potential_title,
@@ -223,9 +139,9 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
             'year': 'Unknown',
             'genres': [],
             'acoustid_id': None,
-            'score': 0.1,
+            'score': 0,
             'duration': None,
-            'success': True
+            'success': False
         }
 
     try:
@@ -235,10 +151,6 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
 
         if not fingerprint or not duration:
             print("[AcoustID] Не удалось получить фингерпринт")
-            if local_metadata_path:
-                result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-                if result:
-                    return result
             potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
             return {
                 'title': potential_title,
@@ -247,9 +159,9 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
                 'year': 'Unknown',
                 'genres': [],
                 'acoustid_id': None,
-                'score': 0.1,
+                'score': 0,
                 'duration': None,
-                'success': True
+                'success': False
             }
 
         print(f"[AcoustID] Fingerprint получен (duration: {duration}s)")
@@ -277,10 +189,6 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
 
         if not result or 'results' not in result:
             print("[AcoustID] Нет результатов в ответе")
-            if local_metadata_path:
-                result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-                if result:
-                    return result
             potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
             return {
                 'title': potential_title,
@@ -289,17 +197,13 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
                 'year': 'Unknown',
                 'genres': [],
                 'acoustid_id': None,
-                'score': 0.1,
+                'score': 0,
                 'duration': None,
-                'success': True
+                'success': False
             }
 
         if not result['results']:
             print("[AcoustID] Результаты AcoustID пусты")
-            if local_metadata_path:
-                result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-                if result:
-                    return result
             potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
             return {
                 'title': potential_title,
@@ -308,9 +212,9 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
                 'year': 'Unknown',
                 'genres': [],
                 'acoustid_id': None,
-                'score': 0.1,
+                'score': 0,
                 'duration': None,
-                'success': True
+                'success': False
             }
 
         filename_no_ext = Path(audio_path).stem.lower()
@@ -372,10 +276,6 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
                 print(f"[AcoustID] Выбран результат с наивысшим score: {best_result.get('score', 0):.2f}")
             else:
                 print("[AcoustID] Ни один результат не найден.")
-                if local_metadata_path:
-                    result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-                    if result:
-                        return result
                 potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
                 return {
                     'title': potential_title,
@@ -384,9 +284,9 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
                     'year': 'Unknown',
                     'genres': [],
                     'acoustid_id': None,
-                    'score': 0.1,
+                    'score': 0,
                     'duration': None,
-                    'success': True
+                    'success': False
                 }
 
 
@@ -456,10 +356,6 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
     except requests.exceptions.HTTPError as e:
         print(f"[AcoustID] HTTP ошибка: {e}")
         print(f"[AcoustID] Response content: {e.response.text}")
-        if local_metadata_path:
-            result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-            if result:
-                return result
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
             'title': potential_title,
@@ -468,16 +364,12 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
             'year': 'Unknown',
             'genres': [],
             'acoustid_id': None,
-            'score': 0.1,
+            'score': 0,
             'duration': None,
-            'success': True
+            'success': False
         }
     except requests.exceptions.RequestException as e:
         print(f"[AcoustID] Ошибка HTTP запроса: {e}")
-        if local_metadata_path:
-            result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-            if result:
-                return result
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
             'title': potential_title,
@@ -486,18 +378,14 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
             'year': 'Unknown',
             'genres': [],
             'acoustid_id': None,
-            'score': 0.1,
+            'score': 0,
             'duration': None,
-            'success': True
+            'success': False
         }
     except Exception as e:
         print(f"[AcoustID] Ошибка при определении трека: {e}")
         import traceback
         traceback.print_exc()
-        if local_metadata_path:
-            result = find_closest_match_from_local_metadata(audio_path, local_metadata_path)
-            if result:
-                return result
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
             'title': potential_title,
@@ -506,13 +394,13 @@ def detect_track_by_audio(audio_path: str, local_metadata_path: Optional[str] = 
             'year': 'Unknown',
             'genres': [],
             'acoustid_id': None,
-            'score': 0.1,
+            'score': 0,
             'duration': None,
-            'success': True
+            'success': False
         }
 
 
-def identify_track(audio_path: str, local_metadata_path: Optional[str] = None) -> Dict:
+def identify_track(audio_path: str) -> Dict:
     print(f"🔍 Идентификация трека: {audio_path}")
 
     result = {
@@ -529,22 +417,22 @@ def identify_track(audio_path: str, local_metadata_path: Optional[str] = None) -
         'success': False
     }
 
-    detection_result = detect_track_by_audio(audio_path, local_metadata_path)
+    detection_result = detect_track_by_audio(audio_path)
 
     if detection_result:
         result.update(detection_result)
         result['success'] = detection_result.get('score', 0) > 0
     else:
-        print("[TrackDetector] Не удалось идентифицировать трек (AcoustID и локальный поиск не дали результата)")
+        print("[TrackDetector] Не удалось идентифицировать трек (AcoustID не дал результата)")
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         result['artist'] = potential_artist
         result['title'] = potential_title
-        result['score'] = 0.1
-        result['success'] = True
+        result['score'] = 0
+        result['success'] = False
 
     result['genres'] = [g for g in result['genres'] if g and g != 'unknown']
 
-    print(f"✅ Идентификация завершена: {result['artist']} - {result['title']}")
+    print(f"✅ Идентификация завершена: {result['artist']} - {result['title']}, success: {result['success']}")
     if result['genres']:
         print(f"🎵 Жанры: {', '.join(result['genres'])}")
 
