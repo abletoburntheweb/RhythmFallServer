@@ -343,6 +343,7 @@ def generate_drums_notes(
         use_filename_for_genres: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот для: {song_path} (BPM: {bpm})")
+    print(f"[DrumGen] Получен track_info: {track_info}")
 
     if not track_info and auto_identify_track:
         print(f"[DrumGen] Автоматическая идентификация трека для: {song_path}")
@@ -358,7 +359,9 @@ def generate_drums_notes(
 
     if track_info and track_info.get('genres'):
         all_genres.extend(track_info['genres'])
-        print(f"[DrumGen] Жанры из аудио: {track_info['genres']}")
+        print(f"[DrumGen] Жанры из переданного track_info: {track_info['genres']}")
+    else:
+        print("[DrumGen] track_info пуст или genres в track_info отсутствуют/пусты")
 
     if use_filename_for_genres and not all_genres:
         if GENRE_DETECTION_AVAILABLE:
@@ -373,6 +376,8 @@ def generate_drums_notes(
                     print("[MultiGenre] Жанры из внешних источников не найдены")
             else:
                 print("[MultiGenre] Трек не идентифицирован, пропускаем получение жанров")
+        else:
+            print("[MultiGenre] Genre detection недоступен, пропускаем получение жанров")
 
     unique_genres = list(set([g for g in all_genres if g and g.lower() != 'unknown']))
 
@@ -385,6 +390,8 @@ def generate_drums_notes(
         if 'sync_tolerance_multiplier' in genre_params:
             sync_tolerance *= genre_params['sync_tolerance_multiplier']
             print(f"[DrumGen] Sync tolerance изменен: {sync_tolerance:.2f}")
+    else:
+        print("[GenreParams] Уникальные жанры не определены, используются параметры по умолчанию.")
 
     if not bpm or bpm <= 0:
         print("Ошибка: некорректный BPM")

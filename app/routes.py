@@ -198,6 +198,7 @@ def generate_drums():
     print(f"DEBUG: Headers: {dict(request.headers)}")
 
     temp_path = None
+    temp_track_path = None
     try:
         audio_data = request.get_data()
         if not audio_data:
@@ -229,25 +230,65 @@ def generate_drums():
         use_stems = True
         use_filename_for_genres = request.headers.get("X-Use-Filename-Genres", "true").lower() == "true"
 
+        manual_artist = request.headers.get("X-Artist-Manual")
+        manual_title = request.headers.get("X-Title-Manual")
+
         track_info = None
-        if request.headers.get("X-Identify-Track", "false").lower() == "true":
-            print("[DrumGen] Identifying track for genre-based generation...")
+        if manual_artist and manual_title:
+            print(f"[DrumGen] Используем введённые пользователем данные для генерации: {manual_artist} - {manual_title}")
+            track_info = {
+                'title': manual_title,
+                'artist': manual_artist,
+                'album': 'Unknown',
+                'year': 'Unknown',
+                'genres': [],
+                'primary_type': None,
+                'secondary_types': [],
+                'acoustid_id': None,
+                'score': 1.0,
+                'duration': None,
+                'success': True
+            }
+            if GENRE_DETECTION_AVAILABLE:
+                print(f"[DrumGen] Запрашиваем жанры для введённых данных: {manual_artist} - {manual_title}")
+                try:
+                    detected_genres = detect_genres(manual_artist, manual_title)
+                    if detected_genres:
+                        track_info['genres'] = detected_genres
+                        print(f"[DrumGen] Получены жанры для введённых данных: {detected_genres}")
+                    else:
+                        print(f"[DrumGen] Жанры для введённых данных не найдены.")
+                except Exception as e:
+                    print(f"[DrumGen] Ошибка при получении жанров для введённых данных: {e}")
+        elif request.headers.get("X-Identify-Track", "false").lower() == "true":
+            print("[DrumGen] Идентификация трека для генерации на основе аудио...")
             temp_track_path = os.path.join("temp_uploads", f"track_{int(time.time())}_{safe_filename}")
             with open(temp_track_path, "wb") as f:
                 f.write(audio_data)
 
             track_info = identify_track(temp_track_path)
 
-            if os.path.exists(temp_track_path):
-                os.remove(temp_track_path)
+            if track_info and not track_info.get('success'):
+                print(f"[DrumGen] Идентификация не удалась (success=False). Требуется ручной ввод artist/title.")
+                if os.path.exists(temp_track_path):
+                    os.remove(temp_track_path)
+                    print(f"[CLEANUP] Временный файл идентификации удалён: {temp_track_path}")
+                    temp_track_path = None
+
+                return jsonify({
+                    "error": "Track identification failed. Please provide artist and title manually.",
+                    "requires_manual_input": True,
+                    "fallback_artist": track_info.get('artist', 'Unknown'),
+                    "fallback_title": track_info.get('title', 'Unknown'),
+                    "status": "requires_manual_input"
+                }), 200
 
             if track_info and track_info.get('success'):
-                print(f"[DrumGen] Identified track: {track_info['artist']} - {track_info['title']}")
+                print(f"[DrumGen] Успешно идентифицирован трек: {track_info['artist']} - {track_info['title']}")
                 if track_info['genres']:
-                    print(f"[DrumGen] Genres from audio: {', '.join(track_info['genres'])}")
+                    print(f"[DrumGen] Жанры из аудио: {', '.join(track_info['genres'])}")
 
-                if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get(
-                        'title') != 'Unknown':
+                if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     spotify_genres = detect_genres(track_info['artist'], track_info['title'])
                     if spotify_genres:
                         original_genres = track_info['genres'][:]
@@ -255,6 +296,14 @@ def generate_drums():
                         track_info['genres'] = list(set(track_info['genres']))
                         if set(track_info['genres']) != set(original_genres):
                             print(f"[Spotify] Добавлены жанры: {spotify_genres}")
+            else:
+                print("[DrumGen] Идентификация трека вернула None или неопределённые данные.")
+
+            if os.path.exists(temp_track_path):
+                os.remove(temp_track_path)
+                print(f"[CLEANUP] Временный файл идентификации удалён: {temp_track_path}")
+                temp_track_path = None
+
 
         if bpm:
             try:
@@ -264,7 +313,7 @@ def generate_drums():
             except ValueError:
                 return jsonify({"error": "Invalid BPM value, must be a number between 1 and 300"}), 400
         else:
-            print("[DrumGen] BPM not provided in headers, calculating...")
+            print("[DrumGen] BPM не предоставлен в заголовках, производим расчёт...")
             temp_bpm_path = os.path.join("temp_uploads", f"temp_bpm_{int(time.time())}.mp3")
             with open(temp_bpm_path, "wb") as f:
                 f.write(audio_data)
@@ -279,13 +328,13 @@ def generate_drums():
                 return jsonify({"error": f"Could not determine BPM: {error_msg}"}), 500
 
             bpm = bpm_result["bpm"]
-            print(f"[DrumGen] Calculated BPM: {bpm}")
+            print(f"[DrumGen] Рассчитанный BPM: {bpm}")
 
         temp_path = os.path.join("temp_uploads", safe_filename)
         with open(temp_path, "wb") as f:
             f.write(audio_data)
 
-        print(f"[DrumGen] Processing {temp_path}")
+        print(f"[DrumGen] Обработка {temp_path}")
         print(f"  BPM: {bpm}, Lanes: {lanes}, Sync Tolerance: {sync_tolerance}")
         print(f"  Use Madmom: {use_madmom_beats}, Use Stems: {use_stems}")
         print(f"  Use Filename Genres: {use_filename_for_genres}")
@@ -298,7 +347,7 @@ def generate_drums():
             use_madmom_beats=use_madmom_beats,
             use_stems=use_stems,
             track_info=track_info,
-            auto_identify_track=track_info is None,
+            auto_identify_track=False,
             use_filename_for_genres=use_filename_for_genres
         )
 
@@ -307,7 +356,7 @@ def generate_drums():
 
         drum_generator.save_drums_notes(notes, temp_path)
 
-        print(f"[DrumGen] Successfully generated {len(notes)} drum notes")
+        print(f"[DrumGen] Успешно сгенерировано {len(notes)} барабанных нот")
 
         kicks_count = len([n for n in notes if n["type"] == "KickNote"])
         snares_count = len([n for n in notes if n["type"] == "SnareNote"])
@@ -337,7 +386,7 @@ def generate_drums():
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"[DrumGen] Exception in generate_drums: {e}")
+        print(f"[DrumGen] Исключение в generate_drums: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -345,9 +394,15 @@ def generate_drums():
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                print(f"[CLEANUP] Temporary upload file removed: {temp_path}")
+                print(f"[CLEANUP] Временный файл загрузки удалён: {temp_path}")
             except Exception as e:
-                print(f"[WARNING] Failed to remove temporary upload file: {e}")
+                print(f"[WARNING] Не удалось удалить временный файл загрузки: {e}")
+        if temp_track_path and os.path.exists(temp_track_path):
+            try:
+                os.remove(temp_track_path)
+                print(f"[CLEANUP] Временный файл идентификации удалён в finally: {temp_track_path}")
+            except Exception as e:
+                print(f"[WARNING] Не удалось удалить временный файл идентификации в finally: {e}")
 
 
 @bp.route("/generate_notes", methods=["POST"])

@@ -114,12 +114,13 @@ def extract_artist_title_from_filename(filename: str) -> tuple[str, str]:
 
 
 def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
+    potential_artist_from_filename, potential_title_from_filename = extract_artist_title_from_filename(audio_path)
+
     if not REQUESTS_AVAILABLE:
-        print("[TrackDetector] Requests не доступен")
-        potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
+        print("[TrackDetector] Requests не доступен, используем информацию из имени файла.")
         return {
-            'title': potential_title,
-            'artist': potential_artist,
+            'title': potential_title_from_filename,
+            'artist': potential_artist_from_filename,
             'album': 'Unknown',
             'year': 'Unknown',
             'genres': [],
@@ -130,11 +131,10 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         }
 
     if not ACOUSTID_API_KEY:
-        print("[TrackDetector] AcoustID API ключ не предоставлен в конфиге")
-        potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
+        print("[TrackDetector] AcoustID API ключ не предоставлен в конфиге, используем информацию из имени файла.")
         return {
-            'title': potential_title,
-            'artist': potential_artist,
+            'title': potential_title_from_filename,
+            'artist': potential_artist_from_filename,
             'album': 'Unknown',
             'year': 'Unknown',
             'genres': [],
@@ -150,11 +150,10 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         duration, fingerprint = fingerprint_audio(audio_path)
 
         if not fingerprint or not duration:
-            print("[AcoustID] Не удалось получить фингерпринт")
-            potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
+            print("[AcoustID] Не удалось получить фингерпринт, используем информацию из имени файла.")
             return {
-                'title': potential_title,
-                'artist': potential_artist,
+                'title': potential_title_from_filename,
+                'artist': potential_artist_from_filename,
                 'album': 'Unknown',
                 'year': 'Unknown',
                 'genres': [],
@@ -177,7 +176,7 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'meta': 'recordings releasegroups releases tracks usermeta'
         }
 
-        print(f"[AcoustID] Request to {url} with  {data}")
+        print(f"[AcoustID] Request to {url}")
 
         response = requests.post(url, data=data, timeout=30)
         print(f"[AcoustID] Response status: {response.status_code}")
@@ -187,27 +186,11 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         print(
             f"[AcoustID] API response: {{'results_count': {len(result.get('results', []))}, 'status': '{result.get('status')}'}}")
 
-        if not result or 'results' not in result:
-            print("[AcoustID] Нет результатов в ответе")
-            potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
+        if not result or 'results' not in result or not result['results']:
+            print("[AcoustID] Нет результатов в ответе, используем информацию из имени файла.")
             return {
-                'title': potential_title,
-                'artist': potential_artist,
-                'album': 'Unknown',
-                'year': 'Unknown',
-                'genres': [],
-                'acoustid_id': None,
-                'score': 0,
-                'duration': None,
-                'success': False
-            }
-
-        if not result['results']:
-            print("[AcoustID] Результаты AcoustID пусты")
-            potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
-            return {
-                'title': potential_title,
-                'artist': potential_artist,
+                'title': potential_title_from_filename,
+                'artist': potential_artist_from_filename,
                 'album': 'Unknown',
                 'year': 'Unknown',
                 'genres': [],
@@ -275,11 +258,10 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             if best_result:
                 print(f"[AcoustID] Выбран результат с наивысшим score: {best_result.get('score', 0):.2f}")
             else:
-                print("[AcoustID] Ни один результат не найден.")
-                potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
+                print("[AcoustID] Ни один результат не найден, используем информацию из имени файла.")
                 return {
-                    'title': potential_title,
-                    'artist': potential_artist,
+                    'title': potential_title_from_filename,
+                    'artist': potential_artist_from_filename,
                     'album': 'Unknown',
                     'year': 'Unknown',
                     'genres': [],
@@ -289,10 +271,19 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
                     'success': False
                 }
 
-
         if 'recordings' not in best_result or not best_result['recordings']:
-            print("[AcoustID] Нет информации о записи в лучшем результате")
-            return None
+            print("[AcoustID] Нет информации о записи в лучшем результате, используем информацию из имени файла.")
+            return {
+                'title': potential_title_from_filename,
+                'artist': potential_artist_from_filename,
+                'album': 'Unknown',
+                'year': 'Unknown',
+                'genres': [],
+                'acoustid_id': None,
+                'score': 0,
+                'duration': None,
+                'success': False
+            }
 
         track_info = {
             'title': 'Unknown',
@@ -303,9 +294,8 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'acoustid_id': best_result.get('id'),
             'score': best_result.get('score', 0),
             'duration': duration,
-            'success': True
+            'success': False
         }
-
 
         for recording in best_result['recordings']:
             if track_info['artist'] == 'Unknown' and 'artists' in recording and recording['artists']:
@@ -346,8 +336,11 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
                 track_info['genres'] = tags[:10]
                 break
 
+        SCORE_THRESHOLD = 0.5
+        track_info['success'] = track_info['score'] >= SCORE_THRESHOLD
+
         print(
-            f"[AcoustID] Найден трек: {track_info['artist']} - {track_info['title']} (score: {track_info['score']:.2f})")
+            f"[AcoustID] Найден трек: {track_info['artist']} - {track_info['title']} (score: {track_info['score']:.2f}, success: {track_info['success']})")
         if track_info['genres']:
             print(f"[AcoustID] Жанры: {', '.join(track_info['genres'])}")
 
@@ -356,10 +349,9 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
     except requests.exceptions.HTTPError as e:
         print(f"[AcoustID] HTTP ошибка: {e}")
         print(f"[AcoustID] Response content: {e.response.text}")
-        potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
-            'title': potential_title,
-            'artist': potential_artist,
+            'title': potential_title_from_filename,
+            'artist': potential_artist_from_filename,
             'album': 'Unknown',
             'year': 'Unknown',
             'genres': [],
@@ -370,10 +362,9 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
         }
     except requests.exceptions.RequestException as e:
         print(f"[AcoustID] Ошибка HTTP запроса: {e}")
-        potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
-            'title': potential_title,
-            'artist': potential_artist,
+            'title': potential_title_from_filename,
+            'artist': potential_artist_from_filename,
             'album': 'Unknown',
             'year': 'Unknown',
             'genres': [],
@@ -383,13 +374,12 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
             'success': False
         }
     except Exception as e:
-        print(f"[AcoustID] Ошибка при определении трека: {e}")
+        print(f"[AcoustID] Неожиданная ошибка при определении трека: {e}")
         import traceback
         traceback.print_exc()
-        potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         return {
-            'title': potential_title,
-            'artist': potential_artist,
+            'title': potential_title_from_filename,
+            'artist': potential_artist_from_filename,
             'album': 'Unknown',
             'year': 'Unknown',
             'genres': [],
@@ -421,9 +411,8 @@ def identify_track(audio_path: str) -> Dict:
 
     if detection_result:
         result.update(detection_result)
-        result['success'] = detection_result.get('score', 0) > 0
     else:
-        print("[TrackDetector] Не удалось идентифицировать трек (AcoustID не дал результата)")
+        print("[TrackDetector] detect_track_by_audio вернул None, используем fallback.")
         potential_artist, potential_title = extract_artist_title_from_filename(audio_path)
         result['artist'] = potential_artist
         result['title'] = potential_title
