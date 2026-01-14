@@ -1,0 +1,50 @@
+{
+  "k-pop": ["kpop", "korean pop", "korean", "k-pop music"],
+  "j-pop": ["jpop", "japanese pop", "j-rock", "visual kei", "anime rock"],
+  "hip hop": ["hip-hop", "hiphop", "urban"],
+  "rap": ["trap", "cloud rap", "drill", "grime", "trap music"],
+  "electronic": [
+    "electronica", "idm", "electro", "glitch", "chiptune", "bitpop",
+    "nintendocore", "video game music", "retro gaming", "synthwave"
+  ],
+  "techno": ["detroit techno", "minimal techno", "acid techno"],
+  "house": [
+    "deep house", "tech house", "progressive house", "chicago house",
+    "tropical house", "future house", "microhouse"
+  ],
+  "trance": ["progressive trance", "uplifting trance"],
+  "dubstep": ["brostep", "melodic dubstep", "riddim"],
+  "rock": [
+    "alternative rock", "indie rock", "garage rock", "psychedelic rock",
+    "stoner rock", "southern rock", "blues rock", "country rock",
+    "art rock", "prog rock", "shoegaze", "dream pop"
+  ],
+  "punk": ["punk rock", "skate punk", "folk punk", "cowpunk"],
+  "metal": [
+    "heavy metal", "thrash metal", "death metal", "black metal",
+    "doom metal", "power metal", "symphonic metal", "nu metal",
+    "metalcore", "deathcore", "groove metal", "sludge metal",
+    "stoner metal", "folk metal", "christian metal"
+  ],
+  "r&b": ["rnb", "contemporary r&b", "neo soul", "motown", "quiet storm"],
+  "soul": ["blue-eyed soul", "northern soul", "gospel soul"],
+  "funk": ["afrofunk", "funk metal", "nu jazz"],
+  "latin": [
+    "reggaeton", "salsa", "bachata", "merengue", "cumbia", "vallenato",
+    "son", "bolero", "tango", "bossa nova", "samba", "flamenco"
+  ],
+  "world music": [
+    "afrobeat", "afropop", "bollywood", "filmi", "desi", "bhangra",
+    "arabic", "persian", "turkish", "greek", "balkan", "klezmer",
+    "tribal", "ethnic", "celtic", "manilla sound", "pinoy pop"
+  ],
+  "ambient": ["dark ambient", "drone", "ritual ambient", "chillout", "lofi", "downtempo"],
+  "classical": [
+    "baroque", "renaissance", "romantic era", "modern classical",
+    "contemporary classical", "neoclassical", "orchestral", "symphonic"
+  ],
+  "ost": ["soundtrack", "anime", "game boy music", "nintendo", "sega", "playstation", "xbox"],
+  "jazz": ["bebop", "free jazz", "fusion", "smooth jazz", "acid jazz", "gypsy jazz"],
+  "disco": ["boogie", "italo disco", "nu disco"],
+  "post-rock": ["math rock", "emo", "post-hardcore", "screamo"]
+}

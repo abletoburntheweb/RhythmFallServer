@@ -69,71 +69,50 @@ TEMP_UPLOADS_DIR = Path("temp_uploads")
 
 def load_genre_configs():
     config_path = Path(__file__).parent / "genre_configs.json"
-    if config_path.exists():
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    else:
-        return {
-            "default": {
-                "kick_sensitivity_multiplier": 1.0,
-                "snare_sensitivity_multiplier": 1.0,
-                "pattern_complexity": "medium",
-                "kick_priority": False,
-                "sync_tolerance_multiplier": 1.0,
-                "drum_start_window": 4.0,
-                "drum_density_threshold": 0.5,
-                "confidence_threshold": 0.3,
-                "max_hits_per_second": 4,
-                "min_note_distance": 0.05,
-                "pattern_style": "groove"
-            },
-            "electronic": {
-                "kick_sensitivity_multiplier": 1.2,
-                "snare_sensitivity_multiplier": 1.1,
-                "pattern_complexity": "high",
-                "kick_priority": True,
-                "sync_tolerance_multiplier": 0.8,
-                "max_hits_per_second": 6,
-                "min_note_distance": 0.04,
-                "pattern_style": "precise"
-            },
-            "rock": {
-                "kick_sensitivity_multiplier": 1.0,
-                "snare_sensitivity_multiplier": 1.0,
-                "pattern_complexity": "medium",
-                "kick_priority": False,
-                "sync_tolerance_multiplier": 1.0,
-                "max_hits_per_second": 4,
-                "min_note_distance": 0.05,
-                "pattern_style": "groove"
-            },
-            "k-pop": {
-                "kick_sensitivity_multiplier": 1.1,
-                "snare_sensitivity_multiplier": 1.2,
-                "pattern_complexity": "high",
-                "kick_priority": False,
-                "sync_tolerance_multiplier": 0.9,
-                "max_hits_per_second": 5,
-                "min_note_distance": 0.045,
-                "pattern_style": "precise"
-            }
-        }
+    if not config_path.exists():
+        raise FileNotFoundError(f"Файл конфигурации жанров не найден: {config_path}")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 
 GENRE_CONFIGS = load_genre_configs()
+GENRE_ALIAS_MAP = load_genre_aliases()
 
+def load_genre_aliases():
+    alias_path = Path(__file__).parent / "genre_aliases.json"
+    if not alias_path.exists():
+        print("[GenreAliases] Файл genre_aliases.json не найден — используем пустой маппинг")
+        return {}
+    with open(alias_path, 'r', encoding='utf-8') as f:
+        raw = json.load(f)
+        alias_map = {}
+        for config_key, aliases in raw.items():
+            for alias in aliases:
+                alias_norm = alias.strip().lower()
+                alias_map[alias_norm] = config_key
+        return alias_map
 
 def get_genre_params(genres: List[str]) -> Dict:
     if not genres:
         return GENRE_CONFIGS.get("default", {})
 
-    genres_lower = [g.lower() for g in genres]
+    for raw_genre in genres:
+        if not raw_genre or raw_genre.lower() == "unknown":
+            continue
 
-    for genre in genres_lower:
-        if genre in GENRE_CONFIGS:
-            print(f"[GenreParams] Используем параметры для жанра: {genre}")
-            return GENRE_CONFIGS[genre]
+        key = raw_genre.strip().lower()
 
+        if key in GENRE_CONFIGS:
+            print(f"[GenreParams] Найдено точное совпадение: {key}")
+            return GENRE_CONFIGS[key]
+
+        if key in GENRE_ALIAS_MAP:
+            target_key = GENRE_ALIAS_MAP[key]
+            if target_key in GENRE_CONFIGS:
+                print(f"[GenreParams] Алиас '{key}' → профиль '{target_key}'")
+                return GENRE_CONFIGS[target_key]
+
+    print("[GenreParams] Подходящий профиль не найден — используем 'default'")
     return GENRE_CONFIGS.get("default", {})
 
 

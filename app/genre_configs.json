@@ -4,76 +4,532 @@
     "snare_sensitivity_multiplier": 1.0,
     "pattern_complexity": "medium",
     "kick_priority": false,
-    "sync_tolerance_multiplier": 1.0
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.5,
+    "confidence_threshold": 0.3,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.05,
+    "pattern_style": "groove"
   },
-  "hip hop": {
-    "kick_sensitivity_multiplier": 1.2,
-    "snare_sensitivity_multiplier": 0.8,
-    "pattern_complexity": "medium",
-    "kick_priority": true,
-    "sync_tolerance_multiplier": 1.0
-  },
-  "rap": {
-    "kick_sensitivity_multiplier": 1.2,
-    "snare_sensitivity_multiplier": 0.8,
-    "pattern_complexity": "medium",
-    "kick_priority": true,
-    "sync_tolerance_multiplier": 1.0
-  },
-  "rock": {
-    "kick_sensitivity_multiplier": 1.0,
-    "snare_sensitivity_multiplier": 1.1,
-    "pattern_complexity": "high",
-    "kick_priority": false,
-    "sync_tolerance_multiplier": 1.1
-  },
-  "metal": {
-    "kick_sensitivity_multiplier": 1.1,
-    "snare_sensitivity_multiplier": 1.2,
-    "pattern_complexity": "high",
-    "kick_priority": false,
-    "sync_tolerance_multiplier": 0.9
-  },
-  "electronic": {
-    "kick_sensitivity_multiplier": 1.3,
-    "snare_sensitivity_multiplier": 0.7,
-    "pattern_complexity": "high",
-    "kick_priority": true,
-    "sync_tolerance_multiplier": 0.8
-  },
-  "techno": {
-    "kick_sensitivity_multiplier": 1.4,
-    "snare_sensitivity_multiplier": 0.6,
-    "pattern_complexity": "high",
-    "kick_priority": true,
-    "sync_tolerance_multiplier": 0.7
-  },
-  "house": {
-    "kick_sensitivity_multiplier": 1.3,
-    "snare_sensitivity_multiplier": 0.8,
-    "pattern_complexity": "medium",
-    "kick_priority": true,
-    "sync_tolerance_multiplier": 0.9
-  },
+
   "pop": {
     "kick_sensitivity_multiplier": 1.0,
     "snare_sensitivity_multiplier": 1.0,
     "pattern_complexity": "low",
     "kick_priority": false,
-    "sync_tolerance_multiplier": 1.0
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.4,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.06,
+    "pattern_style": "precise"
   },
-  "ballad": {
+
+  "rock": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.45,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.05,
+    "pattern_style": "groove"
+  },
+
+  "hip hop": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 2.5,
+    "drum_density_threshold": 0.35,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.07,
+    "pattern_style": "sparse"
+  },
+
+  "rap": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 2.5,
+    "drum_density_threshold": 0.35,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.07,
+    "pattern_style": "sparse"
+  },
+
+  "r&b": {
+    "kick_sensitivity_multiplier": 0.9,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 3.5,
+    "drum_density_threshold": 0.3,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.08,
+    "pattern_style": "groove"
+  },
+
+  "electronic": {
+    "kick_sensitivity_multiplier": 1.3,
+    "snare_sensitivity_multiplier": 0.7,
+    "pattern_complexity": "high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.8,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "precise"
+  },
+
+  "techno": {
+    "kick_sensitivity_multiplier": 1.4,
+    "snare_sensitivity_multiplier": 0.6,
+    "pattern_complexity": "high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.7,
+    "drum_start_window": 1.5,
+    "drum_density_threshold": 0.7,
+    "max_hits_per_second": 7,
+    "min_note_distance": 0.035,
+    "pattern_style": "precise"
+  },
+
+  "house": {
+    "kick_sensitivity_multiplier": 1.3,
+    "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.55,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.045,
+    "pattern_style": "precise"
+  },
+
+  "trance": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 0.7,
+    "pattern_complexity": "high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.8,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "precise"
+  },
+
+  "dubstep": {
+    "kick_sensitivity_multiplier": 1.5,
+    "snare_sensitivity_multiplier": 0.5,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.4,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.06,
+    "pattern_style": "sparse"
+  },
+
+  "trap": {
+    "kick_sensitivity_multiplier": 1.3,
+    "snare_sensitivity_multiplier": 0.9,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.95,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.4,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.05,
+    "pattern_style": "precise"
+  },
+
+  "reggae": {
+    "kick_sensitivity_multiplier": 0.7,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.2,
+    "drum_start_window": 5.0,
+    "drum_density_threshold": 0.25,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.1,
+    "pattern_style": "groove"
+  },
+
+  "ska": {
+    "kick_sensitivity_multiplier": 0.9,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.5,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.05,
+    "pattern_style": "groove"
+  },
+
+  "punk": {
+    "kick_sensitivity_multiplier": 1.1,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "high",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.7,
+    "max_hits_per_second": 7,
+    "min_note_distance": 0.03,
+    "pattern_style": "precise"
+  },
+
+  "metal": {
+    "kick_sensitivity_multiplier": 1.1,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "high",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 2.5,
+    "drum_density_threshold": 0.65,
+    "max_hits_per_second": 8,
+    "min_note_distance": 0.025,
+    "pattern_style": "precise"
+  },
+
+  "folk": {
     "kick_sensitivity_multiplier": 0.8,
     "snare_sensitivity_multiplier": 0.9,
     "pattern_complexity": "low",
     "kick_priority": false,
-    "sync_tolerance_multiplier": 1.2
+    "sync_tolerance_multiplier": 1.2,
+    "drum_start_window": 6.0,
+    "drum_density_threshold": 0.2,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.12,
+    "pattern_style": "groove"
   },
-  "dance": {
+
+  "country": {
+    "kick_sensitivity_multiplier": 0.9,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.3,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.08,
+    "pattern_style": "groove"
+  },
+
+  "jazz": {
+    "kick_sensitivity_multiplier": 0.7,
+    "snare_sensitivity_multiplier": 1.3,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.3,
+    "drum_start_window": 8.0,
+    "drum_density_threshold": 0.2,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.1,
+    "pattern_style": "groove"
+  },
+
+  "blues": {
+    "kick_sensitivity_multiplier": 0.8,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.2,
+    "drum_start_window": 6.0,
+    "drum_density_threshold": 0.25,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.12,
+    "pattern_style": "groove"
+  },
+
+  "soul": {
+    "kick_sensitivity_multiplier": 0.9,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.4,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.07,
+    "pattern_style": "groove"
+  },
+
+  "funk": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.3,
+    "pattern_complexity": "high",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "groove"
+  },
+
+  "disco": {
     "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 2.5,
+    "drum_density_threshold": 0.55,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.05,
+    "pattern_style": "precise"
+  },
+
+  "latin": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "high",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "groove"
+  },
+
+  "k-pop": {
+    "kick_sensitivity_multiplier": 1.1,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "high",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.55,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.045,
+    "pattern_style": "precise"
+  },
+
+  "j-pop": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 0.95,
+    "drum_start_window": 3.5,
+    "drum_density_threshold": 0.5,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.05,
+    "pattern_style": "precise"
+  },
+
+  "classical": {
+    "kick_sensitivity_multiplier": 0.3,
+    "snare_sensitivity_multiplier": 0.4,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.5,
+    "drum_start_window": 10.0,
+    "drum_density_threshold": 0.05,
+    "max_hits_per_second": 1,
+    "min_note_distance": 0.2,
+    "pattern_style": "sparse"
+  },
+
+  "ambient": {
+    "kick_sensitivity_multiplier": 0.2,
+    "snare_sensitivity_multiplier": 0.3,
+    "pattern_complexity": "very_low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 2.0,
+    "drum_start_window": 15.0,
+    "drum_density_threshold": 0.02,
+    "max_hits_per_second": 0.5,
+    "min_note_distance": 0.5,
+    "pattern_style": "sparse"
+  },
+
+  "lofi": {
+    "kick_sensitivity_multiplier": 0.9,
     "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "low",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 1.2,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.3,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.08,
+    "pattern_style": "groove"
+  },
+
+  "indie": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.45,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.06,
+    "pattern_style": "groove"
+  },
+
+  "post-rock": {
+    "kick_sensitivity_multiplier": 0.9,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.2,
+    "drum_start_window": 8.0,
+    "drum_density_threshold": 0.3,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.08,
+    "pattern_style": "groove"
+  },
+
+  "drum and bass": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 0.9,
+    "pattern_complexity": "very_high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.7,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.8,
+    "max_hits_per_second": 10,
+    "min_note_distance": 0.02,
+    "pattern_style": "precise"
+  },
+
+  "hardcore": {
+    "kick_sensitivity_multiplier": 1.3,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "very_high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.8,
+    "drum_start_window": 1.5,
+    "drum_density_threshold": 0.85,
+    "max_hits_per_second": 12,
+    "min_note_distance": 0.015,
+    "pattern_style": "precise"
+  },
+
+  "grime": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 1.0,
     "pattern_complexity": "high",
     "kick_priority": true,
-    "sync_tolerance_multiplier": 0.8
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 2.0,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "precise"
+  },
+
+  "chillout": {
+    "kick_sensitivity_multiplier": 0.7,
+    "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.3,
+    "drum_start_window": 6.0,
+    "drum_density_threshold": 0.2,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.12,
+    "pattern_style": "groove"
+  },
+
+  "synthwave": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 0.8,
+    "pattern_complexity": "medium",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 3.0,
+    "drum_density_threshold": 0.5,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.05,
+    "pattern_style": "precise"
+  },
+
+  "anime": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.0,
+    "drum_start_window": 3.5,
+    "drum_density_threshold": 0.5,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.05,
+    "pattern_style": "groove"
+  },
+
+  "ost": {
+    "kick_sensitivity_multiplier": 0.6,
+    "snare_sensitivity_multiplier": 0.7,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.4,
+    "drum_start_window": 8.0,
+    "drum_density_threshold": 0.15,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.15,
+    "pattern_style": "sparse"
+  },
+
+  "soundtrack": {
+    "kick_sensitivity_multiplier": 0.6,
+    "snare_sensitivity_multiplier": 0.7,
+    "pattern_complexity": "low",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.4,
+    "drum_start_window": 8.0,
+    "drum_density_threshold": 0.15,
+    "max_hits_per_second": 2,
+    "min_note_distance": 0.15,
+    "pattern_style": "sparse"
+  },
+
+  "world music": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.2,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.5,
+    "max_hits_per_second": 5,
+    "min_note_distance": 0.05,
+    "pattern_style": "groove"
+  },
+
+  "experimental": {
+    "kick_sensitivity_multiplier": 0.8,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "variable",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.5,
+    "drum_start_window": 10.0,
+    "drum_density_threshold": 0.1,
+    "max_hits_per_second": 3,
+    "min_note_distance": 0.1,
+    "pattern_style": "sparse"
   }
 }
