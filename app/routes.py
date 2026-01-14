@@ -4,7 +4,8 @@ import os
 import time
 from pathlib import Path
 import app.bpm_analyzer as bpm_analyzer
-from . import drum_generator
+from . import drum_generator_basic
+from . import drum_generator_enhanced
 from .track_detector import identify_track
 
 try:
@@ -208,6 +209,12 @@ def generate_drums():
         instrument_type = request.headers.get("X-Instrument", "drums")
         filename = request.headers.get("X-Filename", "uploaded_audio.mp3")
 
+        drum_mode = request.headers.get("X-Drum-Mode", "basic").lower()
+        if drum_mode not in ["basic", "enhanced"]:
+            return jsonify({"error": "X-Drum-Mode must be 'basic' or 'enhanced'"}), 400
+
+        generator = drum_generator_basic if drum_mode == "basic" else drum_generator_enhanced
+
         safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ").rstrip()
         if not safe_filename:
             safe_filename = f"audio_{int(time.time())}.mp3"
@@ -338,8 +345,9 @@ def generate_drums():
         print(f"  BPM: {bpm}, Lanes: {lanes}, Sync Tolerance: {sync_tolerance}")
         print(f"  Use Madmom: {use_madmom_beats}, Use Stems: {use_stems}")
         print(f"  Use Filename Genres: {use_filename_for_genres}")
+        print(f"  Mode: {drum_mode}")
 
-        notes = drum_generator.generate_drums_notes(
+        notes = generator.generate_drums_notes(
             temp_path,
             bpm,
             lanes=lanes,
@@ -354,9 +362,9 @@ def generate_drums():
         if not notes:
             return jsonify({"error": "Failed to generate drum notes (no notes generated)"}), 500
 
-        drum_generator.save_drums_notes(notes, temp_path)
+        generator.save_drums_notes(notes, temp_path, mode=drum_mode)
 
-        print(f"[DrumGen] Успешно сгенерировано {len(notes)} барабанных нот")
+        print(f"[DrumGen] Успешно сгенерировано {len(notes)} барабанных нот ({drum_mode})")
 
         kicks_count = len([n for n in notes if n["type"] == "KickNote"])
         snares_count = len([n for n in notes if n["type"] == "SnareNote"])
@@ -366,6 +374,7 @@ def generate_drums():
             "bpm": bpm,
             "lanes": lanes,
             "instrument_type": instrument_type,
+            "mode": drum_mode,
             "statistics": {
                 "total_notes": len(notes),
                 "kicks": kicks_count,
