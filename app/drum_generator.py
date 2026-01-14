@@ -74,10 +74,6 @@ def load_genre_configs():
     with open(config_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-
-GENRE_CONFIGS = load_genre_configs()
-GENRE_ALIAS_MAP = load_genre_aliases()
-
 def load_genre_aliases():
     alias_path = Path(__file__).parent / "genre_aliases.json"
     if not alias_path.exists():
@@ -91,6 +87,10 @@ def load_genre_aliases():
                 alias_norm = alias.strip().lower()
                 alias_map[alias_norm] = config_key
         return alias_map
+    
+GENRE_CONFIGS = load_genre_configs()
+GENRE_ALIAS_MAP = load_genre_aliases()
+
 
 def get_genre_params(genres: List[str]) -> Dict:
     if not genres:
