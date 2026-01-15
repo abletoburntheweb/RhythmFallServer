@@ -12,7 +12,9 @@ from .drum_utils import (
     sync_to_beats,
     assign_lanes_to_notes,
     save_drums_notes,
-    load_drums_notes
+    load_drums_notes,
+    remove_kick_snare_collisions,
+    detect_drum_section_start
 )
 
 
@@ -55,7 +57,6 @@ def generate_drums_notes(
     drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
 
     all_raw_events = sorted(kick_times + snare_times)
-    from .drum_utils import detect_drum_section_start
     drum_section_start = detect_drum_section_start(all_raw_events, drum_start_window, drum_density_threshold)
 
     filtered_kicks = [t for t in kick_times if t >= drum_section_start]
@@ -63,6 +64,7 @@ def generate_drums_notes(
 
     min_note_distance = genre_params.get('min_note_distance', 0.05)
     pattern_style = genre_params.get('pattern_style', 'groove')
+    kick_priority = genre_params.get('kick_priority', False)
 
     final_kicks = apply_temporal_filter(sorted(filtered_kicks), min_note_distance)
     final_snares = apply_temporal_filter(sorted(filtered_snares), min_note_distance)
@@ -77,6 +79,12 @@ def generate_drums_notes(
         print("[DrumGen-Basic] Нет нот после синхронизации — используем грув-паттерн")
         synced_kicks = grooved_kicks
         synced_snares = grooved_snares
+
+    tolerance = min_note_distance
+    synced_kicks, synced_snares = remove_kick_snare_collisions(
+        synced_kicks, synced_snares, tolerance, kick_priority
+    )
+    print(f"[DrumGen-Basic] После удаления коллизий: Kick={len(synced_kicks)}, Snare={len(synced_snares)}")
 
     all_events = []
     for t in synced_kicks:

@@ -105,6 +105,39 @@ def assign_lanes_to_notes(notes: List[Dict], lanes: int = 4, song_offset: float 
     return sorted(result, key=lambda x: x["time"])
 
 
+def remove_kick_snare_collisions(
+        kicks: List[float],
+        snares: List[float],
+        tolerance: float = 0.03,
+        kick_priority: bool = False
+) -> tuple[List[float], List[float]]:
+    all_times = sorted(set(kicks + snares))
+    final_kicks: List[float] = []
+    final_snares: List[float] = []
+
+    for t in all_times:
+        has_kick = any(abs(t - k) < tolerance for k in kicks)
+        has_snare = any(abs(t - s) < tolerance for s in snares)
+
+        if has_kick and has_snare:
+            if kick_priority:
+                final_kicks.append(t)
+                print(f"[Collision] Kick wins at {t:.3f} (priority)")
+            else:
+                final_snares.append(t)
+                print(f"[Collision] Snare wins at {t:.3f}")
+        elif has_kick:
+            final_kicks.append(t)
+        elif has_snare:
+            final_snares.append(t)
+
+    collisions_removed = len(kicks) + len(snares) - len(final_kicks) - len(final_snares)
+    if collisions_removed > 0:
+        print(f"[CollisionFix] Убрано {collisions_removed} дубликатов")
+
+    return final_kicks, final_snares
+
+
 def load_genre_configs(config_path: Optional[Path] = None) -> dict:
     if config_path is None:
         config_path = Path(__file__).parent / "genre_configs.json"
