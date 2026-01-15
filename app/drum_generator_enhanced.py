@@ -7,7 +7,9 @@ from .drum_utils import (
     apply_groove_pattern,
     sync_to_beats,
     assign_lanes_to_notes,
-    detect_drum_section_start
+    detect_drum_section_start,
+    save_drums_notes,
+    load_drums_notes
 )
 
 
@@ -51,7 +53,7 @@ def analyze_rhythm_pattern(
         density_map[(measure_start, measure_end)] = density
 
         for pos in rounded_positions:
-            if round(pos % 1.0, 2) == 0.0:  # на доле
+            if round(pos % 1.0, 2) == 0.0:
                 closest_beat = min(beats, key=lambda b: abs(b - (measure_start + pos * beat_interval)))
                 accents.add(closest_beat)
 
@@ -97,16 +99,16 @@ def enhance_rhythm_events(
             continue
 
         density = len(measure_events) / measure_duration
-        target_density = max_hits_per_second * 0.6  # Цель: не перегружать
+        target_density = max_hits_per_second * 0.6
 
         if density < target_density * 0.6:
             for beat in measure_beats:
                 if all(abs(beat - e) >= min_distance for e in enhanced):
                     import random
-                    if random.random() < 0.35:  # 35% шанс добавить
+                    if random.random() < 0.35:
                         enhanced.append(beat)
 
-        common_positions = [0.0, 2.0]  # для kick
+        common_positions = [0.0, 2.0]
         if event_type == "snare":
             common_positions = [1.0, 3.0]
 
