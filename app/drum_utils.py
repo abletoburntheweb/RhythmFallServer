@@ -122,10 +122,8 @@ def remove_kick_snare_collisions(
         if has_kick and has_snare:
             if kick_priority:
                 final_kicks.append(t)
-                print(f"[Collision] Kick wins at {t:.3f} (priority)")
             else:
                 final_snares.append(t)
-                print(f"[Collision] Snare wins at {t:.3f}")
         elif has_kick:
             final_kicks.append(t)
         elif has_snare:
