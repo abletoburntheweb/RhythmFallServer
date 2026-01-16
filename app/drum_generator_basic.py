@@ -102,17 +102,6 @@ def generate_drums_notes(
     print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
     print(f"   - BPM: {bpm}, Style: {pattern_style}")
 
-    if track_info and track_info.get('success'):
-        notes.append({
-            "type": "TrackInfo",
-            "title": track_info['title'],
-            "artist": track_info['artist'],
-            "genres": unique_genres,
-            "album": track_info['album'],
-            "year": track_info['year'],
-            "time": -1
-        })
-
     if len(notes) == 0:
         print("[DrumGen-Basic] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
