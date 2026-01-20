@@ -65,7 +65,6 @@ def generate_drums_notes(
         drum_density_threshold
     )
 
-    # Фильтруем события до начала секции
     filtered_events = [t for t in all_raw_events if t >= drum_section_start]
 
     min_note_distance = genre_params.get('min_note_distance', 0.05)
