@@ -2,8 +2,7 @@
 
 class NoteType:
     """Базовый класс для типов нот"""
-    KICK = "KickNote"
-    SNARE = "SnareNote"
+    DRUM = "DrumNote"
     DEFAULT = "DefaultNote"
     HOLD = "HoldNote"
 

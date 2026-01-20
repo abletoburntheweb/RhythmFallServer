@@ -1,4 +1,5 @@
 # app/drum_generator_enhanced.py
+
 import numpy as np
 from typing import List, Dict, Optional
 from .audio_analysis import analyze_audio
@@ -11,13 +12,14 @@ from .drum_utils import (
     save_drums_notes,
     load_drums_notes
 )
+from .note_types import NoteType
 
 
 def analyze_rhythm_pattern(
-    events: List[float],
-    bpm: float,
-    beats: np.ndarray,
-    density_threshold: float = 0.6
+        events: List[float],
+        bpm: float,
+        beats: np.ndarray,
+        density_threshold: float = 0.6
 ) -> Dict:
     if not events or len(beats) < 4:
         return {"patterns": [], "density": {}, "accents": []}
@@ -67,12 +69,14 @@ def analyze_rhythm_pattern(
 
 
 def enhance_rhythm_events(
-    base_events: List[float],
-    beats: np.ndarray,
-    bpm: float,
-    genre_params: dict,
-    event_type: str = "kick"
+        base_events: List[float],
+        beats: np.ndarray,
+        bpm: float,
+        genre_params: dict
 ) -> List[float]:
+    """
+    Улучшает плотность и ритмический паттерн для ОБЪЕДИНЁННЫХ ударных событий (kick + snare).
+    """
     if not base_events or len(beats) < 4:
         return base_events
 
@@ -109,9 +113,6 @@ def enhance_rhythm_events(
                         enhanced.append(beat)
 
         common_positions = [0.0, 2.0]
-        if event_type == "snare":
-            common_positions = [1.0, 3.0]
-
         for pos in common_positions:
             aligned_time = measure_start + pos * beat_interval
             if aligned_time > measure_end:
@@ -126,15 +127,15 @@ def enhance_rhythm_events(
 
 
 def generate_drums_notes(
-    song_path: str,
-    bpm: float,
-    lanes: int = 4,
-    sync_tolerance: float = 0.2,
-    use_madmom_beats: bool = True,
-    use_stems: bool = True,
-    track_info: Optional[Dict] = None,
-    auto_identify_track: bool = False,
-    use_filename_for_genres: bool = True
+        song_path: str,
+        bpm: float,
+        lanes: int = 4,
+        sync_tolerance: float = 0.2,
+        use_madmom_beats: bool = True,
+        use_stems: bool = True,
+        track_info: Optional[Dict] = None,
+        auto_identify_track: bool = False,
+        use_filename_for_genres: bool = True
 ) -> Optional[List[Dict]]:
     print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
 
@@ -161,49 +162,39 @@ def generate_drums_notes(
 
     drum_start_window = genre_params.get('drum_start_window', 4.0)
     drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
-    all_raw_events = sorted(kick_times + snare_times)
-    drum_section_start = detect_drum_section_start(all_raw_events, drum_start_window, drum_density_threshold)
 
-    filtered_kicks = [t for t in kick_times if t >= drum_section_start]
-    filtered_snares = [t for t in snare_times if t >= drum_section_start]
+    all_raw_events = sorted(set(kick_times + snare_times))
+
+    drum_section_start = detect_drum_section_start(
+        all_raw_events,
+        drum_start_window,
+        drum_density_threshold
+    )
+
+    filtered_events = [t for t in all_raw_events if t >= drum_section_start]
 
     min_note_distance = genre_params.get('min_note_distance', 0.05)
     pattern_style = genre_params.get('pattern_style', 'groove')
 
-    final_kicks = apply_temporal_filter(sorted(filtered_kicks), min_note_distance)
-    final_snares = apply_temporal_filter(sorted(filtered_snares), min_note_distance)
+    final_events = apply_temporal_filter(sorted(filtered_events), min_note_distance)
+    grooved_events = apply_groove_pattern(final_events, pattern_style, bpm)
+    enhanced_events = enhance_rhythm_events(grooved_events, beats, bpm, genre_params)
+    synced_events = sync_to_beats(enhanced_events, beats, sync_tolerance)
 
-    grooved_kicks = apply_groove_pattern(final_kicks, pattern_style, bpm)
-    grooved_snares = apply_groove_pattern(final_snares, pattern_style, bpm)
+    if len(synced_events) == 0:
+        print("[DrumGen-Enhanced] Нет нот после синхронизации — используем грув-паттерн")
+        synced_events = grooved_events
 
-    enhanced_kicks = enhance_rhythm_events(grooved_kicks, beats, bpm, genre_params, "kick")
-    enhanced_snares = enhance_rhythm_events(grooved_snares, beats, bpm, genre_params, "snare")
-
-    synced_kicks = sync_to_beats(enhanced_kicks, beats, sync_tolerance)
-    synced_snares = sync_to_beats(enhanced_snares, beats, sync_tolerance)
-
-    if len(synced_kicks) + len(synced_snares) == 0:
-        synced_kicks = grooved_kicks
-        synced_snares = grooved_snares
-
-    all_events = []
-    for t in synced_kicks:
-        all_events.append({"type": "KickNote", "time": t})
-    for t in synced_snares:
-        all_events.append({"type": "SnareNote", "time": t})
+    all_events = [{"type": NoteType.DRUM, "time": t} for t in synced_events]
 
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
-    kicks_count = len([n for n in notes if n["type"] == "KickNote"])
-    snares_count = len([n for n in notes if n["type"] == "SnareNote"])
-
-    print(f"✅ Сгенерировано {len(notes)} барабанных нот (enhanced)")
-    print(f"   - Kick: {kicks_count} | Snare: {snares_count}")
+    drum_count = len(notes)
+    print(f"✅ Сгенерировано {drum_count} барабанных нот (enhanced)")
     print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
     print(f"   - BPM: {bpm}, Style: {pattern_style}")
 
-
-    if len(notes) == 0:
+    if drum_count == 0:
         print("[DrumGen-Enhanced] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
     return notes

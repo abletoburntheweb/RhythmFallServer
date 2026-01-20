@@ -366,8 +366,7 @@ def generate_drums():
 
         print(f"[DrumGen] Успешно сгенерировано {len(notes)} барабанных нот ({drum_mode})")
 
-        kicks_count = len([n for n in notes if n["type"] == "KickNote"])
-        snares_count = len([n for n in notes if n["type"] == "SnareNote"])
+        drum_count = len([n for n in notes if n["type"] == "DrumNote"])
 
         response_data = {
             "notes": notes,
@@ -377,8 +376,7 @@ def generate_drums():
             "mode": drum_mode,
             "statistics": {
                 "total_notes": len(notes),
-                "kicks": kicks_count,
-                "snares": snares_count
+                "drum_notes": drum_count
             },
             "status": "success"
         }
