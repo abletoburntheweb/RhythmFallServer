@@ -241,6 +241,7 @@ def generate_drums():
         manual_title = request.headers.get("X-Title-Manual")
 
         track_info = None
+
         if manual_artist and manual_title:
             print(f"[DrumGen] Используем введённые пользователем данные для генерации: {manual_artist} - {manual_title}")
             track_info = {
@@ -256,17 +257,29 @@ def generate_drums():
                 'duration': None,
                 'success': True
             }
-            if GENRE_DETECTION_AVAILABLE:
-                print(f"[DrumGen] Запрашиваем жанры для введённых данных: {manual_artist} - {manual_title}")
-                try:
-                    detected_genres = detect_genres(manual_artist, manual_title)
-                    if detected_genres:
-                        track_info['genres'] = detected_genres
-                        print(f"[DrumGen] Получены жанры для введённых данных: {detected_genres}")
-                    else:
-                        print(f"[DrumGen] Жанры для введённых данных не найдены.")
-                except Exception as e:
-                    print(f"[DrumGen] Ошибка при получении жанров для введённых данных: {e}")
+
+            is_unknown = (
+                manual_artist.strip().lower() == "unknown" and
+                manual_title.strip().lower() == "unknown"
+            )
+
+            if is_unknown:
+                use_filename_for_genres = False
+                print("[DrumGen] Пропускаем определение жанров: artist/title = 'Unknown'")
+                print("[DrumGen] Отключено использование имени файла для жанров")
+            else:
+                if GENRE_DETECTION_AVAILABLE:
+                    print(f"[DrumGen] Запрашиваем жанры для введённых данных: {manual_artist} - {manual_title}")
+                    try:
+                        detected_genres = detect_genres(manual_artist, manual_title)
+                        if detected_genres:
+                            track_info['genres'] = detected_genres
+                            print(f"[DrumGen] Получены жанры для введённых данных: {detected_genres}")
+                        else:
+                            print(f"[DrumGen] Жанры для введённых данных не найдены.")
+                    except Exception as e:
+                        print(f"[DrumGen] Ошибка при получении жанров для введённых данных: {e}")
+
         elif request.headers.get("X-Identify-Track", "false").lower() == "true":
             print("[DrumGen] Идентификация трека для генерации на основе аудио...")
             temp_track_path = os.path.join("temp_uploads", f"track_{int(time.time())}_{safe_filename}")
@@ -310,7 +323,6 @@ def generate_drums():
                 os.remove(temp_track_path)
                 print(f"[CLEANUP] Временный файл идентификации удалён: {temp_track_path}")
                 temp_track_path = None
-
 
         if bpm:
             try:

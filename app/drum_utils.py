@@ -184,15 +184,13 @@ def get_genre_params(genres: List[str], genre_configs: dict, genre_alias_map: di
     return genre_configs.get("default", {})
 
 
-def save_drums_notes(notes_data: List[Dict], song_path: str, mode: str = "basic") -> bool:
-    if not notes_data:
-        print(f"[DrumUtils] Нет данных нот для сохранения (mode: {mode}).")
-        return False
-
+def save_drums_notes(notes_data: List[Dict], song_path: str, mode: str = "basic", lanes: int = 4) -> bool:
     base_name = Path(song_path).stem
     song_folder = Path("temp_uploads") / base_name
     notes_folder = song_folder / "notes"
     notes_folder.mkdir(parents=True, exist_ok=True)
+
+    notes_path = notes_folder / f"{base_name}_drums_{mode}_lanes{lanes}.json"
 
     notes_path = notes_folder / f"{base_name}_drums_{mode}.json"
 
