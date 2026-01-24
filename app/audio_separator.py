@@ -19,7 +19,7 @@ def detect_kick_snare_with_essentia(y, sr, audio_path: str):
         return detect_kick_snare_original(y, sr)
 
     try:
-        loader = es.MonoLoader(filename=audio_path)
+        loader = es.MonoLoader(filename=audio_path, sampleRate=sr)
         audio = loader()
 
         onset_detector = es.OnsetDetection(method="hfc")
@@ -29,48 +29,68 @@ def detect_kick_snare_with_essentia(y, sr, audio_path: str):
         spectrum = es.Spectrum()
         frames = es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size)
 
-        onset_frames = []
+        onset_times = []
+        frame_index = 0
         for frame in frames:
             frame_windowed = window(frame)
             frame_spectrum = spectrum(frame_windowed)
-            onset = onset_detector(frame_spectrum, frame_spectrum)
-            if onset > 0.5:
-                onset_frames.append(len(onset_frames) * hop_size / sr)
+            onset_strength = onset_detector(frame_spectrum, frame_spectrum)
+            if onset_strength > 0.5:
+                time = frame_index * hop_size / sr
+                onset_times.append(time)
+            frame_index += 1
+
+        onset_times = sorted(set(onset_times))
 
         kick_times = []
         snare_times = []
 
-        for time in onset_frames:
+        for time in onset_times:
             start_sample = int(max(0, (time - 0.05)) * sr)
             end_sample = int(min(len(audio), (time + 0.05) * sr))
-
             if end_sample - start_sample < 100:
                 continue
 
             segment = audio[start_sample:end_sample]
-
             segment_fft = np.fft.fft(segment)
             freqs = np.fft.fftfreq(len(segment), 1 / sr)
 
-            valid_indices = (freqs >= 0) & (freqs <= 8000)
-            segment_fft = segment_fft[valid_indices]
-            freqs = freqs[valid_indices]
+            positive = freqs >= 0
+            segment_fft = segment_fft[positive]
+            freqs = freqs[positive]
 
-            kick_energy = np.sum(np.abs(segment_fft[(freqs >= 60) & (freqs <= 200)]))
-            snare_energy = np.sum(np.abs(segment_fft[(freqs >= 200) & (freqs <= 5000)]))
+            kick_mask = (freqs >= 60) & (freqs <= 200)
+            snare_mask = (freqs >= 200) & (freqs <= 5000)
+            sub_bass_mask = (freqs >= 40) & (freqs <= 100)
 
-            sub_bass_energy = np.sum(np.abs(segment_fft[(freqs >= 40) & (freqs <= 100)]))
+            kick_energy = np.sum(np.abs(segment_fft[kick_mask])) if np.any(kick_mask) else 0
+            snare_energy = np.sum(np.abs(segment_fft[snare_mask])) if np.any(snare_mask) else 0
+            sub_bass_energy = np.sum(np.abs(segment_fft[sub_bass_mask])) if np.any(sub_bass_mask) else 0
 
             if sub_bass_energy > kick_energy * 0.5 and kick_energy > snare_energy * 0.3:
                 kick_times.append(time)
             elif snare_energy > kick_energy:
                 snare_times.append(time)
 
+        def remove_close(times, min_interval=0.05):
+            if not times:
+                return []
+            filtered = [times[0]]
+            for t in times[1:]:
+                if t - filtered[-1] >= min_interval:
+                    filtered.append(t)
+            return filtered
+
+        kick_times = remove_close(kick_times)
+        snare_times = remove_close(snare_times)
+
         print(f"[Essentia] Найдено {len(kick_times)} kick и {len(snare_times)} snare")
         return kick_times, snare_times
 
     except Exception as e:
         print(f"[Essentia] Ошибка детекции: {e}")
+        import traceback
+        traceback.print_exc()
         return detect_kick_snare_original(y, sr)
 
 
