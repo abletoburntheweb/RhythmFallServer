@@ -74,9 +74,7 @@ def enhance_rhythm_events(
         bpm: float,
         genre_params: dict
 ) -> List[float]:
-    """
-    Улучшает плотность и ритмический паттерн для ОБЪЕДИНЁННЫХ ударных событий (kick + snare).
-    """
+
     if not base_events or len(beats) < 4:
         return base_events
 

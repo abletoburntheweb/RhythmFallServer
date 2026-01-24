@@ -225,3 +225,37 @@ def analyze_audio(
         "genre_params": genre_params,
         "duration": len(librosa.load(analysis_path, sr=None)[0]) / librosa.load(analysis_path, sr=None)[1] if LIBROSA_AVAILABLE else 0.0
     }
+
+def extract_drum_hits(
+    song_path: str,
+    bpm: Optional[float] = None,
+    use_stems: bool = True,
+    use_madmom_beats: bool = True
+) -> Dict[str, List[float]]:
+    base_name = Path(song_path).stem
+    temp_dir = TEMP_UPLOADS_DIR / base_name
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    local_path = temp_dir / Path(song_path).name
+    if not local_path.exists():
+        shutil.copy2(song_path, local_path)
+
+    analysis_path = str(local_path)
+
+    if use_stems and AUDIO_SEPARATOR_AVAILABLE:
+        stem_path = separate_stems(str(local_path), temp_dir, stem_type="drums")
+        if stem_path != str(local_path):
+            analysis_path = stem_path
+
+    beats = extract_beats(analysis_path, bpm)
+
+    kick_times, snare_times = [], []
+    if LIBROSA_AVAILABLE:
+        y, sr = librosa.load(analysis_path, sr=None, mono=True, dtype='float32')
+        kick_times, snare_times = detect_kick_snare_with_essentia(y, sr, analysis_path)
+
+    return {
+        "beats": beats.tolist() if isinstance(beats, np.ndarray) else beats,
+        "kick_times": kick_times,
+        "snare_times": snare_times
+    }

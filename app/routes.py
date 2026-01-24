@@ -201,7 +201,6 @@ def generate_drums():
 
     temp_path = None
     try:
-        # === ПАРСИНГ MULTIPART ===
         if "audio_file" not in request.files:
             return jsonify({"error": "Missing 'audio_file' in multipart form"}), 400
 
@@ -216,7 +215,6 @@ def generate_drums():
         except json.JSONDecodeError as e:
             return jsonify({"error": f"Invalid JSON in 'metadata': {str(e)}"}), 400
 
-        # === ИЗВЛЕЧЕНИЕ ПАРАМЕТРОВ ===
         original_filename = metadata.get("original_filename", "uploaded_audio.mp3")
         bpm = metadata.get("bpm")
         lanes = metadata.get("lanes", 4)
@@ -226,19 +224,23 @@ def generate_drums():
         auto_identify_track = metadata.get("auto_identify_track", False)
         manual_artist = metadata.get("manual_artist", "")
         manual_title = metadata.get("manual_title", "")
+        genres = metadata.get("genres")
+        primary_genre = metadata.get("primary_genre")
 
-        # Валидация
         if not isinstance(lanes, int) or not (1 <= lanes <= 8):
             return jsonify({"error": "Invalid 'lanes': must be integer 1-8"}), 400
         if not isinstance(sync_tolerance, (int, float)) or not (0.01 <= sync_tolerance <= 1.0):
             return jsonify({"error": "Invalid 'sync_tolerance': must be float 0.01-1.0"}), 400
         if generation_mode not in ["basic", "enhanced"]:
             return jsonify({"error": "'generation_mode' must be 'basic' or 'enhanced'"}), 400
+        if genres is not None and not isinstance(genres, list):
+            return jsonify({"error": "'genres' must be a list of strings"}), 400
+        if primary_genre is not None and not isinstance(primary_genre, str):
+            return jsonify({"error": "'primary_genre' must be a string"}), 400
 
         drum_mode = generation_mode
         generator = drum_generator_basic if drum_mode == "basic" else drum_generator_enhanced
 
-        # === СОХРАНЕНИЕ АУДИО ===
         safe_filename = "".join(c for c in original_filename if c.isalnum() or c in "._- ").rstrip()
         if not safe_filename:
             safe_filename = f"audio_{int(time.time())}.mp3"
@@ -248,7 +250,6 @@ def generate_drums():
         print(f"[DrumGen] Audio saved: {temp_path}")
         print(f"[DrumGen] Original filename (Unicode-safe): {original_filename}")
 
-        # === BPM ===
         if bpm is None:
             print("[DrumGen] BPM not provided, calculating...")
             bpm_result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False)
@@ -265,7 +266,6 @@ def generate_drums():
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid 'bpm': must be number 1-300"}), 400
 
-        # === TRACK INFO ===
         track_info = None
 
         if manual_artist and manual_title:
@@ -274,41 +274,29 @@ def generate_drums():
                 manual_artist.strip().lower() == "unknown" and
                 manual_title.strip().lower() == "unknown"
             )
-            if is_unknown:
-                print("[DrumGen] Manual input is 'Unknown' — skipping genre detection")
-                use_filename_for_genres = False
-            else:
-                use_filename_for_genres = True
-                if GENRE_DETECTION_AVAILABLE:
-                    try:
-                        detected_genres = detect_genres(manual_artist, manual_title)
-                        track_info = {
-                            'title': manual_title,
-                            'artist': manual_artist,
-                            'album': 'Unknown',
-                            'year': 'Unknown',
-                            'genres': detected_genres or [],
-                            'acoustid_id': None,
-                            'score': 1.0,
-                            'duration': None,
-                            'success': True
-                        }
-                        print(f"[DrumGen] Genres from manual input: {detected_genres}")
-                    except Exception as e:
-                        print(f"[DrumGen] Genre detection failed: {e}")
-                        track_info = {
-                            'title': manual_title,
-                            'artist': manual_artist,
-                            'genres': [],
-                            'success': True
-                        }
+            if not is_unknown and GENRE_DETECTION_AVAILABLE:
+                try:
+                    detected_genres = detect_genres(manual_artist, manual_title)
+                    track_info = {
+                        'title': manual_title,
+                        'artist': manual_artist,
+                        'genres': detected_genres or [],
+                        'success': True
+                    }
+                    print(f"[DrumGen] Genres from manual input: {detected_genres}")
+                except Exception as e:
+                    print(f"[DrumGen] Genre detection failed: {e}")
+                    track_info = {
+                        'title': manual_title,
+                        'artist': manual_artist,
+                        'genres': [],
+                        'success': True
+                    }
         elif auto_identify_track:
             print("[DrumGen] Auto-identifying track from audio...")
             track_info = identify_track(temp_path)
             if track_info and track_info.get('success'):
                 print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
-                if track_info.get('genres'):
-                    print(f"[DrumGen] Genres from AcoustID: {', '.join(track_info['genres'])}")
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     try:
                         spotify_genres = detect_genres(track_info['artist'], track_info['title'])
@@ -326,7 +314,6 @@ def generate_drums():
             print("[DrumGen] No track identification requested")
             track_info = None
 
-        # === ГЕНЕРАЦИЯ НОТ ===
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
         notes = generator.generate_drums_notes(
             temp_path,
@@ -337,7 +324,9 @@ def generate_drums():
             use_stems=True,
             track_info=track_info,
             auto_identify_track=False,
-            use_filename_for_genres=(manual_artist and manual_title and not (manual_artist.lower() == "unknown" and manual_title.lower() == "unknown"))
+            use_filename_for_genres=(manual_artist and manual_title and not (manual_artist.lower() == "unknown" and manual_title.lower() == "unknown")),
+            provided_genres=genres,
+            provided_primary_genre=primary_genre
         )
 
         if not notes:
@@ -345,7 +334,6 @@ def generate_drums():
 
         generator.save_drums_notes(notes, temp_path, mode=drum_mode)
 
-        # === ОТВЕТ ===
         drum_count = len([n for n in notes if n.get("type") == "DrumNote"])
         response_data = {
             "notes": notes,
@@ -360,16 +348,18 @@ def generate_drums():
             "status": "success"
         }
 
-        if track_info and track_info.get('success'):
-            response_data['track_info'] = {
-                'title': track_info['title'],
-                'artist': track_info['artist'],
-                'album': track_info.get('album', 'Unknown'),
-                'year': track_info.get('year', 'Unknown'),
-                'genres': track_info.get('genres', [])
-            }
+        final_genres = genres if genres is not None else (track_info.get("genres") if track_info else [])
+        final_primary = primary_genre or (track_info.get("primary_genre") if track_info else (final_genres[0] if final_genres else "groove"))
+
+        response_data['track_info'] = {
+            'title': manual_title or (track_info.get('title') if track_info else 'Unknown'),
+            'artist': manual_artist or (track_info.get('artist') if track_info else 'Unknown'),
+            'genres': final_genres,
+            'primary_genre': final_primary
+        }
 
         print(f"[DrumGen] Successfully generated {len(notes)} notes ({drum_mode})")
+        print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
         return jsonify(response_data)
 
     except Exception as e:

@@ -223,3 +223,31 @@ def detect_genres(artist: str, title: str) -> List[str]:
                 return results['by_source'][source][:3]
 
     return filtered_genres[:5]
+
+
+from .drum_utils import load_genre_configs, load_genre_aliases, get_genre_params
+
+_GENRE_CONFIGS = load_genre_configs()
+_GENRE_ALIAS_MAP = load_genre_aliases()
+
+
+def get_genre_config(genre_name: str) -> dict:
+
+    if not genre_name or not isinstance(genre_name, str):
+        genre_name = "groove"
+
+    if genre_name in _GENRE_CONFIGS:
+        return _GENRE_CONFIGS[genre_name]
+
+    for canonical, aliases in _GENRE_ALIAS_MAP.items():
+        if genre_name.lower() in [a.lower() for a in aliases]:
+            return _GENRE_CONFIGS.get(canonical, _GENRE_CONFIGS["groove"])
+
+    print(f"[GenreDetector] Жанр '{genre_name}' не найден, используем 'groove'")
+    return _GENRE_CONFIGS.get("groove", {
+        "pattern_style": "groove",
+        "min_note_distance": 0.05,
+        "drum_start_window": 4.0,
+        "drum_density_threshold": 0.5,
+        "sync_tolerance_multiplier": 1.0
+    })

@@ -20,35 +20,83 @@ from .note_types import NoteType
 
 
 def generate_drums_notes(
-        song_path: str,
-        bpm: float,
-        lanes: int = 4,
-        sync_tolerance: float = 0.2,
-        use_madmom_beats: bool = True,
-        use_stems: bool = True,
-        track_info: Optional[Dict] = None,
-        auto_identify_track: bool = False,
-        use_filename_for_genres: bool = True
+    song_path: str,
+    bpm: float,
+    lanes: int = 4,
+    sync_tolerance: float = 0.2,
+    use_madmom_beats: bool = True,
+    use_stems: bool = True,
+    track_info: Optional[Dict] = None,
+    auto_identify_track: bool = False,
+    use_filename_for_genres: bool = True,
+    provided_genres: Optional[List[str]] = None,
+    provided_primary_genre: Optional[str] = None
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот (basic) для: {song_path} (BPM: {bpm})")
 
-    analysis = analyze_audio(
-        song_path=song_path,
-        bpm=bpm,
-        use_stems=use_stems,
-        auto_identify_track=auto_identify_track,
-        use_filename_for_genres=use_filename_for_genres,
-        track_info=track_info,
-        stem_type="drums"
-    )
+    unique_genres = []
+    primary_genre = None
 
-    bpm = analysis["bpm"]
-    beats = np.array(analysis["beats"])
-    kick_times = analysis["kick_times"]
-    snare_times = analysis["snare_times"]
-    genre_params = analysis["genre_params"]
-    unique_genres = analysis["genres"]
-    track_info = analysis["track_info"]
+    if provided_genres is not None:
+        unique_genres = [g for g in provided_genres if isinstance(g, str) and g.strip()]
+        primary_genre = provided_primary_genre or (unique_genres[0] if unique_genres else None)
+        print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
+        print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
+    else:
+        analysis = analyze_audio(
+            song_path=song_path,
+            bpm=bpm,
+            use_stems=use_stems,
+            auto_identify_track=auto_identify_track,
+            use_filename_for_genres=use_filename_for_genres,
+            track_info=track_info,
+            stem_type="drums"
+        )
+        bpm = analysis["bpm"]
+        beats = np.array(analysis["beats"])
+        kick_times = analysis["kick_times"]
+        snare_times = analysis["snare_times"]
+        genre_params = analysis["genre_params"]
+        unique_genres = analysis["genres"]
+        track_info = analysis["track_info"]
+        primary_genre = track_info.get("primary_genre") if track_info else None
+
+    from .genre_detector import get_genre_config
+    if primary_genre:
+        genre_params = get_genre_config(primary_genre)
+        print(f"[DrumGen-Basic] Применён стиль '{primary_genre}'")
+    else:
+        genre_params = get_genre_config("groove")
+        print("[DrumGen-Basic] Не указан primary_genre — используем 'groove'")
+
+    if provided_genres is not None:
+        from .audio_analysis import extract_drum_hits
+        try:
+            drum_hits = extract_drum_hits(
+                song_path=song_path,
+                bpm=bpm,
+                use_stems=use_stems,
+                use_madmom_beats=use_madmom_beats
+            )
+            beats = np.array(drum_hits["beats"])
+            kick_times = drum_hits["kick_times"]
+            snare_times = drum_hits["snare_times"]
+        except Exception as e:
+            print(f"[DrumGen-Basic] Ошибка извлечения хитов: {e}")
+            analysis = analyze_audio(
+                song_path=song_path,
+                bpm=bpm,
+                use_stems=use_stems,
+                auto_identify_track=False,
+                use_filename_for_genres=False,
+                track_info=None,
+                stem_type="drums"
+            )
+            beats = np.array(analysis["beats"])
+            kick_times = analysis["kick_times"]
+            snare_times = analysis["snare_times"]
+
+    all_raw_events = sorted(set(kick_times + snare_times))
 
     if 'sync_tolerance_multiplier' in genre_params:
         sync_tolerance *= genre_params['sync_tolerance_multiplier']
@@ -56,8 +104,6 @@ def generate_drums_notes(
 
     drum_start_window = genre_params.get('drum_start_window', 4.0)
     drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
-
-    all_raw_events = sorted(set(kick_times + snare_times))
 
     drum_section_start = detect_drum_section_start(
         all_raw_events,
@@ -71,7 +117,6 @@ def generate_drums_notes(
     pattern_style = genre_params.get('pattern_style', 'groove')
 
     final_events = apply_temporal_filter(sorted(filtered_events), min_note_distance)
-
     grooved_events = apply_groove_pattern(final_events, pattern_style, bpm)
     synced_events = sync_to_beats(grooved_events, beats, sync_tolerance)
 
@@ -80,7 +125,6 @@ def generate_drums_notes(
         synced_events = grooved_events
 
     all_events = [{"type": NoteType.DRUM, "time": t} for t in synced_events]
-
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)
