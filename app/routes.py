@@ -314,6 +314,14 @@ def generate_drums():
             print("[DrumGen] No track identification requested")
             track_info = None
 
+        normalized_genres = [g for g in (genres or []) if isinstance(g, str) and g.strip()]
+        provided_genres = normalized_genres if normalized_genres else None
+        normalized_primary_genre = (
+            primary_genre
+            if primary_genre and primary_genre.strip().lower() != "unknown"
+            else None
+        )
+
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
         notes = generator.generate_drums_notes(
             temp_path,
@@ -325,8 +333,8 @@ def generate_drums():
             track_info=track_info,
             auto_identify_track=False,
             use_filename_for_genres=(manual_artist and manual_title and not (manual_artist.lower() == "unknown" and manual_title.lower() == "unknown")),
-            provided_genres=genres,
-            provided_primary_genre=primary_genre
+            provided_genres=provided_genres,
+            provided_primary_genre=normalized_primary_genre
         )
 
         if not notes:
@@ -348,8 +356,8 @@ def generate_drums():
             "status": "success"
         }
 
-        final_genres = genres if genres is not None else (track_info.get("genres") if track_info else [])
-        final_primary = primary_genre or (track_info.get("primary_genre") if track_info else (final_genres[0] if final_genres else "groove"))
+        final_genres = provided_genres if provided_genres is not None else (track_info.get("genres") if track_info else [])
+        final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else (final_genres[0] if final_genres else "groove"))
 
         response_data['track_info'] = {
             'title': manual_title or (track_info.get('title') if track_info else 'Unknown'),
