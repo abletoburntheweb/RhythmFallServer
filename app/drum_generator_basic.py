@@ -1,5 +1,4 @@
 # app/drum_generator_basic.py
-
 import os
 import json
 import numpy as np
@@ -36,6 +35,7 @@ def generate_drums_notes(
 
     unique_genres = []
     primary_genre = None
+    dominant_onsets: List[float] = []
 
     if provided_genres is not None:
         unique_genres = [g for g in provided_genres if isinstance(g, str) and g.strip()]
@@ -56,6 +56,7 @@ def generate_drums_notes(
         beats = np.array(analysis["beats"])
         kick_times = analysis["kick_times"]
         snare_times = analysis["snare_times"]
+        dominant_onsets = analysis.get("dominant_onsets", [])
         genre_params = analysis["genre_params"]
         unique_genres = analysis["genres"]
         track_info = analysis["track_info"]
@@ -81,6 +82,7 @@ def generate_drums_notes(
             beats = np.array(drum_hits["beats"])
             kick_times = drum_hits["kick_times"]
             snare_times = drum_hits["snare_times"]
+            dominant_onsets = drum_hits.get("dominant_onsets", [])
         except Exception as e:
             print(f"[DrumGen-Basic] Ошибка извлечения хитов: {e}")
             analysis = analyze_audio(
@@ -95,8 +97,12 @@ def generate_drums_notes(
             beats = np.array(analysis["beats"])
             kick_times = analysis["kick_times"]
             snare_times = analysis["snare_times"]
+            dominant_onsets = analysis.get("dominant_onsets", [])
 
-    all_raw_events = sorted(set(kick_times + snare_times))
+    if dominant_onsets:
+        all_raw_events = sorted(set(dominant_onsets))
+    else:
+        all_raw_events = sorted(set(kick_times + snare_times))
 
     if 'sync_tolerance_multiplier' in genre_params:
         sync_tolerance *= genre_params['sync_tolerance_multiplier']
@@ -115,10 +121,12 @@ def generate_drums_notes(
 
     min_note_distance = genre_params.get('min_note_distance', 0.05)
     pattern_style = genre_params.get('pattern_style', 'groove')
+    apply_groove = genre_params.get('apply_groove_pattern', False)
+    use_grid_sync = genre_params.get('sync_to_beats', False)
 
     final_events = apply_temporal_filter(sorted(filtered_events), min_note_distance)
-    grooved_events = apply_groove_pattern(final_events, pattern_style, bpm)
-    synced_events = sync_to_beats(grooved_events, beats, sync_tolerance)
+    grooved_events = apply_groove_pattern(final_events, pattern_style, bpm) if apply_groove else final_events
+    synced_events = sync_to_beats(grooved_events, beats, sync_tolerance) if use_grid_sync else grooved_events
 
     if len(synced_events) == 0:
         print("[DrumGen-Basic] Нет нот после синхронизации — используем грув-паттерн")

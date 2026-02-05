@@ -157,6 +157,54 @@ def detect_drum_events(audio_path: str) -> Tuple[List[float], List[float]]:
     return detect_kick_snare_with_essentia(y, sr, audio_path)
 
 
+def extract_dominant_onsets(
+    audio_path: str,
+    bpm: Optional[float] = None,
+    window_duration: Optional[float] = None,
+    confidence_ratio: float = 0.15
+) -> List[float]:
+    if not LIBROSA_AVAILABLE:
+        return []
+
+    y, sr = librosa.load(audio_path, sr=None, mono=True, dtype='float32')
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    if onset_env.size == 0:
+        return []
+
+    onset_times = librosa.times_like(onset_env, sr=sr)
+    global_max = float(onset_env.max())
+    global_median = float(np.median(onset_env))
+
+    if window_duration is None:
+        if bpm and bpm > 0:
+            beat_interval = 60.0 / bpm
+            window_duration = max(0.06, min(0.5, beat_interval * 0.5))
+        else:
+            window_duration = 0.2
+
+    window_duration = max(0.05, float(window_duration))
+    min_strength = max(global_median * 1.5, global_max * confidence_ratio)
+
+    frame_times = onset_times
+    dominant_onsets: List[float] = []
+    window_start = float(frame_times[0]) if len(frame_times) else 0.0
+    end_time = float(frame_times[-1]) if len(frame_times) else 0.0
+
+    while window_start <= end_time:
+        window_end = window_start + window_duration
+        frame_indices = np.where((frame_times >= window_start) & (frame_times < window_end))[0]
+        if frame_indices.size > 0:
+            window_strengths = onset_env[frame_indices]
+            peak_idx = frame_indices[int(np.argmax(window_strengths))]
+            peak_strength = float(onset_env[peak_idx])
+            window_median = float(np.median(window_strengths))
+            if peak_strength >= max(min_strength, window_median * 1.25):
+                dominant_onsets.append(float(frame_times[peak_idx]))
+        window_start = window_end
+
+    return dominant_onsets
+
+
 def analyze_audio(
     song_path: str,
     bpm: Optional[float] = None,
@@ -208,6 +256,7 @@ def analyze_audio(
             analysis_path = stem_path
 
     beats = extract_beats(analysis_path, bpm)
+    dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm)
 
     kick_times, snare_times = [], []
     if stem_type == "drums":
@@ -218,6 +267,7 @@ def analyze_audio(
         "beats": beats.tolist(),
         "kick_times": kick_times,
         "snare_times": snare_times,
+        "dominant_onsets": dominant_onsets,
         "analysis_path": analysis_path,
         "original_path": str(original_file_path),
         "track_info": track_info,
@@ -248,6 +298,7 @@ def extract_drum_hits(
             analysis_path = stem_path
 
     beats = extract_beats(analysis_path, bpm)
+    dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm)
 
     kick_times, snare_times = [], []
     if LIBROSA_AVAILABLE:
@@ -257,5 +308,6 @@ def extract_drum_hits(
     return {
         "beats": beats.tolist() if isinstance(beats, np.ndarray) else beats,
         "kick_times": kick_times,
-        "snare_times": snare_times
+        "snare_times": snare_times,
+        "dominant_onsets": dominant_onsets
     }

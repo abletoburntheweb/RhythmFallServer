@@ -1,5 +1,4 @@
 # app/drum_generator_enhanced.py
-
 import numpy as np
 from typing import List, Dict, Optional
 from .audio_analysis import analyze_audio
@@ -151,6 +150,7 @@ def generate_drums_notes(
     beats = np.array(analysis["beats"])
     kick_times = analysis["kick_times"]
     snare_times = analysis["snare_times"]
+    dominant_onsets = analysis.get("dominant_onsets", [])
     genre_params = analysis["genre_params"]
     unique_genres = analysis["genres"]
     track_info = analysis["track_info"]
@@ -161,7 +161,10 @@ def generate_drums_notes(
     drum_start_window = genre_params.get('drum_start_window', 4.0)
     drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
 
-    all_raw_events = sorted(set(kick_times + snare_times))
+    if dominant_onsets:
+        all_raw_events = sorted(set(dominant_onsets))
+    else:
+        all_raw_events = sorted(set(kick_times + snare_times))
 
     drum_section_start = detect_drum_section_start(
         all_raw_events,
@@ -173,11 +176,14 @@ def generate_drums_notes(
 
     min_note_distance = genre_params.get('min_note_distance', 0.05)
     pattern_style = genre_params.get('pattern_style', 'groove')
+    apply_groove = genre_params.get('apply_groove_pattern', False)
+    use_grid_sync = genre_params.get('sync_to_beats', False)
+    enhance_with_grid = genre_params.get('enhance_with_grid', False)
 
     final_events = apply_temporal_filter(sorted(filtered_events), min_note_distance)
-    grooved_events = apply_groove_pattern(final_events, pattern_style, bpm)
-    enhanced_events = enhance_rhythm_events(grooved_events, beats, bpm, genre_params)
-    synced_events = sync_to_beats(enhanced_events, beats, sync_tolerance)
+    grooved_events = apply_groove_pattern(final_events, pattern_style, bpm) if apply_groove else final_events
+    enhanced_events = enhance_rhythm_events(grooved_events, beats, bpm, genre_params) if enhance_with_grid else grooved_events
+    synced_events = sync_to_beats(enhanced_events, beats, sync_tolerance) if use_grid_sync else enhanced_events
 
     if len(synced_events) == 0:
         print("[DrumGen-Enhanced] Нет нот после синхронизации — используем грув-паттерн")
