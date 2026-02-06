@@ -149,19 +149,48 @@ def extract_beats(audio_path: str, bpm: Optional[float] = None) -> np.ndarray:
     return beats
 
 
-def detect_drum_events(audio_path: str) -> Tuple[List[float], List[float]]:
+def detect_drum_events(audio_path: str, genre_params: Optional[Dict] = None) -> Tuple[List[float], List[float]]:
     if not LIBROSA_AVAILABLE:
         return [], []
 
     y, sr = librosa.load(audio_path, sr=None, mono=True, dtype='float32')
-    return detect_kick_snare_with_essentia(y, sr, audio_path)
+
+    S_full = np.abs(librosa.stft(y, n_fft=2048, hop_length=512, win_length=1024))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
+
+    low_mask = (freqs >= 50) & (freqs <= 200)
+    S_kick = S_full[low_mask].sum(axis=0)
+
+    mid_mask = (freqs > 200) & (freqs <= 5000)
+    S_snare = S_full[mid_mask].sum(axis=0)
+
+    times = librosa.frames_to_time(np.arange(len(S_kick)), sr=sr, hop_length=512, n_fft=2048)
+
+    def detect_peaks_adaptive(energy, threshold_ratio=0.2, min_distance=0.05):
+        from scipy.signal import find_peaks
+        global_max = energy.max()
+        threshold = global_max * threshold_ratio
+        distance_frames = int(min_distance * sr / 512)
+        peaks, _ = find_peaks(energy, prominence=threshold, distance=distance_frames)
+        return times[peaks].tolist()
+
+    kick_mult = (genre_params or {}).get('kick_sensitivity_multiplier', 1.0)
+    snare_mult = (genre_params or {}).get('snare_sensitivity_multiplier', 1.0)
+
+    kick_threshold = 0.20 / kick_mult
+    snare_threshold = 0.25 / snare_mult
+
+    kick_times = detect_peaks_adaptive(S_kick, threshold_ratio=kick_threshold)
+    snare_times = detect_peaks_adaptive(S_snare, threshold_ratio=snare_threshold)
+
+    return kick_times, snare_times
 
 
 def extract_dominant_onsets(
     audio_path: str,
     bpm: Optional[float] = None,
     window_duration: Optional[float] = None,
-    confidence_ratio: float = 0.15
+    threshold_ratio: float = 0.15
 ) -> List[float]:
     if not LIBROSA_AVAILABLE:
         return []
@@ -173,7 +202,8 @@ def extract_dominant_onsets(
 
     onset_times = librosa.times_like(onset_env, sr=sr)
     global_max = float(onset_env.max())
-    global_median = float(np.median(onset_env))
+
+    min_strength = global_max * threshold_ratio
 
     if window_duration is None:
         if bpm and bpm > 0:
@@ -183,7 +213,6 @@ def extract_dominant_onsets(
             window_duration = 0.2
 
     window_duration = max(0.05, float(window_duration))
-    min_strength = max(global_median * 1.5, global_max * confidence_ratio)
 
     frame_times = onset_times
     dominant_onsets: List[float] = []
@@ -197,12 +226,17 @@ def extract_dominant_onsets(
             window_strengths = onset_env[frame_indices]
             peak_idx = frame_indices[int(np.argmax(window_strengths))]
             peak_strength = float(onset_env[peak_idx])
-            window_median = float(np.median(window_strengths))
-            if peak_strength >= max(min_strength, window_median * 1.25):
+            if peak_strength >= min_strength:
                 dominant_onsets.append(float(frame_times[peak_idx]))
         window_start = window_end
 
-    return dominant_onsets
+    min_event_distance = 0.05
+    filtered_onsets = []
+    for t in sorted(dominant_onsets):
+        if not filtered_onsets or abs(t - filtered_onsets[-1]) > min_event_distance:
+            filtered_onsets.append(t)
+
+    return filtered_onsets
 
 
 def analyze_audio(
@@ -260,7 +294,7 @@ def analyze_audio(
 
     kick_times, snare_times = [], []
     if stem_type == "drums":
-        kick_times, snare_times = detect_drum_events(analysis_path)
+        kick_times, snare_times = detect_drum_events(analysis_path, genre_params=genre_params)
 
     return {
         "bpm": float(bpm),
