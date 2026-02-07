@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import shutil
-
+import bisect
 from .track_detector import REQUESTS_AVAILABLE, identify_track
 
 if REQUESTS_AVAILABLE:
@@ -149,7 +149,7 @@ def extract_beats(audio_path: str, bpm: Optional[float] = None) -> np.ndarray:
     return beats
 
 
-def detect_drum_events(audio_path: str, genre_params: Optional[Dict] = None) -> Tuple[List[float], List[float]]:
+def detect_drum_events(audio_path: str, bpm: float, genre_params: Optional[Dict] = None) -> Tuple[List[float], List[float]]:
     if not LIBROSA_AVAILABLE:
         return [], []
 
@@ -183,6 +183,12 @@ def detect_drum_events(audio_path: str, genre_params: Optional[Dict] = None) -> 
     kick_times = detect_peaks_adaptive(S_kick, threshold_ratio=kick_threshold)
     snare_times = detect_peaks_adaptive(S_snare, threshold_ratio=snare_threshold)
 
+    sync_tolerance = genre_params.get('sync_tolerance', 0.1) if genre_params else 0.1
+    subdivisions = genre_params.get('quantization_subdivisions', [4, 8, 16]) if genre_params else [4, 8, 16]
+
+    kick_times = quantize_events_to_grid(kick_times, bpm, tolerance=sync_tolerance, subdivisions=subdivisions)
+    snare_times = quantize_events_to_grid(snare_times, bpm, tolerance=sync_tolerance, subdivisions=subdivisions)
+
     return kick_times, snare_times
 
 
@@ -190,7 +196,8 @@ def extract_dominant_onsets(
     audio_path: str,
     bpm: Optional[float] = None,
     window_duration: Optional[float] = None,
-    threshold_ratio: float = 0.15
+    threshold_ratio: float = 0.15,
+    genre_params: Optional[Dict] = None
 ) -> List[float]:
     if not LIBROSA_AVAILABLE:
         return []
@@ -235,6 +242,11 @@ def extract_dominant_onsets(
     for t in sorted(dominant_onsets):
         if not filtered_onsets or abs(t - filtered_onsets[-1]) > min_event_distance:
             filtered_onsets.append(t)
+
+    if bpm:
+        sync_tolerance = genre_params.get('sync_tolerance', 0.1) if genre_params else 0.1
+        subdivisions = genre_params.get('quantization_subdivisions', [4, 8, 16]) if genre_params else [4, 8, 16]
+        filtered_onsets = quantize_events_to_grid(filtered_onsets, bpm, tolerance=sync_tolerance, subdivisions=subdivisions)
 
     return filtered_onsets
 
@@ -290,11 +302,11 @@ def analyze_audio(
             analysis_path = stem_path
 
     beats = extract_beats(analysis_path, bpm)
-    dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm)
+    dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm, genre_params=genre_params)
 
     kick_times, snare_times = [], []
     if stem_type == "drums":
-        kick_times, snare_times = detect_drum_events(analysis_path, genre_params=genre_params)
+        kick_times, snare_times = detect_drum_events(analysis_path, bpm=bpm, genre_params=genre_params)
 
     return {
         "bpm": float(bpm),
@@ -309,6 +321,39 @@ def analyze_audio(
         "genre_params": genre_params,
         "duration": len(librosa.load(analysis_path, sr=None)[0]) / librosa.load(analysis_path, sr=None)[1] if LIBROSA_AVAILABLE else 0.0
     }
+
+def quantize_events_to_grid(events: List[float], bpm: float, tolerance: float = 0.1, subdivisions: List[int] = [4, 8, 16]) -> List[float]:
+    from bisect import bisect_left
+
+    beat_interval = 60.0 / bpm
+    grids = []
+    for div in subdivisions:
+        step = beat_interval / div
+        grid = np.arange(0.0, max(events) + beat_interval, step)
+        grids.append(grid)
+
+    quantized = []
+    for t in events:
+        best_snap = t
+        min_diff = tolerance + 1
+
+        for grid in grids:
+            idx = bisect_left(grid, t)
+            candidates = []
+            if idx < len(grid):
+                candidates.append(grid[idx])
+            if idx > 0:
+                candidates.append(grid[idx - 1])
+
+            for candidate in candidates:
+                diff = abs(candidate - t)
+                if diff <= tolerance and diff < min_diff:
+                    min_diff = diff
+                    best_snap = candidate
+
+        quantized.append(best_snap)
+
+    return sorted(set(quantized))
 
 def extract_drum_hits(
     song_path: str,
