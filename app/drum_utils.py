@@ -96,11 +96,10 @@ def assign_lanes_to_notes(notes: List[Dict], lanes: int = 4, song_offset: float 
             lane = min(range(lanes), key=lambda l: last_lane_usage.get(l, -999))
 
         last_lane_usage[lane] = adjusted_time
-        result.append({
-            "type": note["type"],
-            "lane": lane,
-            "time": float(adjusted_time)
-        })
+        payload = dict(note)
+        payload["lane"] = lane
+        payload["time"] = float(adjusted_time)
+        result.append(payload)
 
     return sorted(result, key=lambda x: x["time"])
 

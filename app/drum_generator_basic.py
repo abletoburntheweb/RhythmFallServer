@@ -1,4 +1,5 @@
 # app/drum_generator_basic.py
+
 import os
 import json
 import numpy as np
@@ -67,8 +68,8 @@ def generate_drums_notes(
         genre_params = get_genre_config(primary_genre)
         print(f"[DrumGen-Basic] Применён стиль '{primary_genre}'")
     else:
-        genre_params = get_genre_config("default")
-        print("[DrumGen-Basic] Не указан primary_genre — используем 'default'")
+        genre_params = get_genre_config("groove")
+        print("[DrumGen-Basic] Не указан primary_genre — используем 'groove'")
 
     if provided_genres is not None:
         from .audio_analysis import extract_drum_hits
