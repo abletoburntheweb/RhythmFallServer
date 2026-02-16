@@ -295,16 +295,19 @@ def generate_drums():
         elif auto_identify_track:
             print("[DrumGen] Auto-identifying track from audio...")
             track_info = identify_track(temp_path)
-            if track_info and track_info.get('success'):
-                print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
+            if track_info:
+                if track_info.get('success'):
+                    print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
+                else:
+                    print("[DrumGen] Auto-identification failed — using filename metadata for genre lookup")
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     try:
-                        spotify_genres = detect_genres(track_info['artist'], track_info['title'])
-                        if spotify_genres:
-                            original = track_info['genres'][:]
-                            track_info['genres'] = list(set(original + spotify_genres))
+                        detected_genres = detect_genres(track_info['artist'], track_info['title'])
+                        if detected_genres:
+                            original = track_info.get('genres', [])[:]
+                            track_info['genres'] = list(set(original + detected_genres))
                             if set(track_info['genres']) != set(original):
-                                print(f"[Spotify] Added genres: {spotify_genres}")
+                                print(f"[Spotify] Added genres: {detected_genres}")
                     except Exception as e:
                         print(f"[Spotify] Failed: {e}")
             else:

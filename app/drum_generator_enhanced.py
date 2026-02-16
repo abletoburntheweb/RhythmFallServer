@@ -195,12 +195,36 @@ class GenrePatternMapper:
         mfcc_mean: np.ndarray,
         mfcc_var: np.ndarray,
         spectral_centroid: float,
-        key: str
+        key: str,
+        genres: Optional[List[str]]
     ) -> str:
         bpm = self.bpm
         centroid = spectral_centroid
         mfcc_energy = float(np.mean(np.abs(mfcc_mean))) if mfcc_mean.size else 0.0
         mfcc_spread = float(np.mean(mfcc_var)) if mfcc_var.size else 0.0
+        genre_set = {g.strip().lower() for g in (genres or []) if isinstance(g, str)}
+        primary = None
+        if track_info and isinstance(track_info, dict):
+            primary = track_info.get("primary_genre")
+        if isinstance(primary, str):
+            genre_set.add(primary.strip().lower())
+
+        if "electronic" in genre_set:
+            return "electronic"
+        if "house" in genre_set:
+            return "house"
+        if "techno" in genre_set:
+            return "techno"
+        if "trance" in genre_set:
+            return "trance"
+        if "drum and bass" in genre_set or "dnb" in genre_set:
+            return "drum and bass"
+        if "funk" in genre_set:
+            return "funk"
+        if "jazz" in genre_set:
+            return "jazz"
+        if "latin" in genre_set:
+            return "latin"
 
         if bpm >= 140 and centroid >= 2800 and mfcc_spread >= 20:
             return "drum and bass"
@@ -220,7 +244,7 @@ class GenrePatternMapper:
         if not events:
             return events
 
-        genre = self.classify(None, np.array([]), np.array([]), 0.0, "C")
+        genre = self.classify(None, np.array([]), np.array([]), 0.0, "C", None)
         return self._apply_genre_patterns(events, genre, autocorr_peak, density, interval_cv)
 
     def apply_with_metadata(
@@ -231,11 +255,12 @@ class GenrePatternMapper:
         mfcc_var: np.ndarray,
         spectral_centroid: float,
         key: str,
+        genres: Optional[List[str]],
         autocorr_peak: float,
         density: float,
         interval_cv: float
     ) -> List[Dict]:
-        genre = self.classify(track_info, mfcc_mean, mfcc_var, spectral_centroid, key)
+        genre = self.classify(track_info, mfcc_mean, mfcc_var, spectral_centroid, key, genres)
         return self._apply_genre_patterns(events, genre, autocorr_peak, density, interval_cv)
 
     def _apply_genre_patterns(
@@ -262,7 +287,7 @@ class GenrePatternMapper:
                 continue
 
             pattern_positions = None
-            if genre in {"house", "techno", "trance"}:
+            if genre in {"house", "techno", "trance", "electronic"}:
                 pattern_positions = [0.0, 2.0]
             elif genre in {"drum and bass", "funk"}:
                 if density >= 0.8 and interval_cv <= 0.15:
@@ -298,10 +323,11 @@ class GenrePatternMapper:
 
 
 class Quantizer:
-    def __init__(self, bpm: float, beat_start: float):
+    def __init__(self, bpm: float, beat_start: float, allow_eighths: bool = True):
         self.bpm = bpm
         self.beat_start = beat_start
         self.beat_interval = 60.0 / bpm if bpm > 0 else 0.5
+        self.allow_eighths = allow_eighths
 
     def quantize(self, events: List[Dict], tolerance: float = 0.01) -> List[Dict]:
         if not events:
@@ -312,13 +338,16 @@ class Quantizer:
 
         grid_start = min(self.beat_start, start_time)
         quarter_grid = np.arange(grid_start, end_time + beat_interval, beat_interval)
-        eighth_grid = np.arange(grid_start, end_time + beat_interval / 2, beat_interval / 2)
+        grids = [quarter_grid]
+        if self.allow_eighths:
+            eighth_grid = np.arange(grid_start, end_time + beat_interval / 2, beat_interval / 2)
+            grids.append(eighth_grid)
 
         quantized = []
         for event in events:
             t = event["time"]
             candidates = []
-            for grid in (quarter_grid, eighth_grid):
+            for grid in grids:
                 idx = int(np.argmin(np.abs(grid - t)))
                 candidates.append(float(grid[idx]))
 
@@ -623,7 +652,21 @@ def generate_drums_notes(
             provided_primary_genre=provided_primary_genre
         )
 
-    quantizer = Quantizer(bpm, beats[0] if beats.size else 0.0)
+    mapper = GenrePatternMapper(bpm, beats[0] if beats.size else 0.0)
+    genre_label = mapper.classify(
+        track_info,
+        extraction.get("mfcc_mean", np.array([])),
+        extraction.get("mfcc_var", np.array([])),
+        extraction.get("spectral_centroid", 0.0),
+        extraction.get("key", "C"),
+        unique_genres
+    )
+
+    quantizer = Quantizer(
+        bpm,
+        beats[0] if beats.size else 0.0,
+        allow_eighths=genre_label not in {"electronic"}
+    )
     events = quantizer.quantize(events, tolerance=0.01)
 
     events = _normalize_events(events)
@@ -631,7 +674,6 @@ def generate_drums_notes(
     intervals = [events[i]["time"] - events[i - 1]["time"] for i in range(1, len(events))]
     interval_cv = _coefficient_of_variation(intervals)
 
-    mapper = GenrePatternMapper(bpm, beats[0] if beats.size else 0.0)
     events = mapper.apply_with_metadata(
         events,
         track_info,
@@ -639,6 +681,7 @@ def generate_drums_notes(
         extraction.get("mfcc_var", np.array([])),
         extraction.get("spectral_centroid", 0.0),
         extraction.get("key", "C"),
+        unique_genres,
         extraction.get("autocorr_peak", 0.0),
         density,
         interval_cv

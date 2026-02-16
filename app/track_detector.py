@@ -248,14 +248,27 @@ def detect_track_by_audio(audio_path: str) -> Optional[Dict]:
                             f"[AcoustID] Найдено лучшее совпадение: {artist_name} - {title_name}, score: {current_score:.2f}, match_words: {match_count}/{total_filename_words}, combined: {combined_score:.3f}")
 
         if not best_result:
-            print(
-                "[AcoustID] Ни один результат не прошёл порог совпадения слов с именем файла. Выбираем по наивысшему score.")
+            print("[AcoustID] Ни один результат не прошёл порог совпадения слов с именем файла.")
+            if filename_words:
+                print("[AcoustID] Используем информацию из имени файла вместо score fallback.")
+                return {
+                    'title': potential_title_from_filename,
+                    'artist': potential_artist_from_filename,
+                    'album': 'Unknown',
+                    'year': 'Unknown',
+                    'genres': [],
+                    'acoustid_id': None,
+                    'score': 0,
+                    'duration': None,
+                    'success': False
+                }
+
             for res in potential_results:
                 current_score = res.get('score', 0)
                 if current_score > best_combined_score:
                     best_result = res
                     best_combined_score = current_score
-            if best_result:
+            if best_result and best_result.get('score', 0) >= 0.85:
                 print(f"[AcoustID] Выбран результат с наивысшим score: {best_result.get('score', 0):.2f}")
             else:
                 print("[AcoustID] Ни один результат не найден, используем информацию из имени файла.")
