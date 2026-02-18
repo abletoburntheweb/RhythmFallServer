@@ -72,14 +72,26 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
     output_path = splitter_folder / expected_name
 
     if output_path.exists():
+        print(f"[AudioAnalysis] Использую кешированный stem: {output_path.name}")
         return str(output_path)
 
-    for f in splitter_folder.glob("*.wav"):
-        if stem_type in f.name.lower():
-            shutil.copy2(f, output_path)
-            return str(output_path)
+    candidates = [f for f in splitter_folder.glob("*.wav") if stem_type in f.name.lower()]
+    preferred = None
+    for f in candidates:
+        name = f.name.lower()
+        if "no drums" in name or "(no drums)" in name or "no_drums" in name:
+            continue
+        preferred = f
+        break
+    if not preferred and candidates:
+        preferred = candidates[0]
+    if preferred:
+        print(f"[AudioAnalysis] Найден локальный stem: {preferred.name} → {output_path.name}")
+        shutil.copy2(preferred, output_path)
+        return str(output_path)
 
     if not AUDIO_SEPARATOR_AVAILABLE:
+        print("[AudioAnalysis] Separator недоступен — используем оригинальный файл")
         return str(song_path)
 
     try:
@@ -104,21 +116,35 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                     break
 
         if not target_model:
+            print("[AudioAnalysis] Не найден подходящий separator-модель — используем оригинал")
             return str(song_path)
 
         separator.load_model(target_model)
+        print(f"[AudioAnalysis] Загружена separator-модель: {target_model}")
         output_files = separator.separate(str(song_path))
 
-        for f in output_files:
-            if stem_type in f.lower():
-                src = splitter_folder / f
-                if src.exists():
-                    shutil.copy2(src, output_path)
-                    return str(output_path)
+        targets = [f for f in output_files if stem_type in f.lower()]
+        preferred_out = None
+        for f in targets:
+            lf = f.lower()
+            if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
+                continue
+            preferred_out = f
+            break
+        if not preferred_out and targets:
+            preferred_out = targets[0]
+        if preferred_out:
+            src = splitter_folder / preferred_out
+            if src.exists():
+                print(f"[AudioAnalysis] Выбран stem после разделения: {preferred_out} → {output_path.name}")
+                shutil.copy2(src, output_path)
+                return str(output_path)
 
+        print("[AudioAnalysis] Не удалось найти корректный stem — используем оригинал")
         return str(song_path)
 
     except Exception:
+        print("[AudioAnalysis] Ошибка при разделении — используем оригинал")
         return str(song_path)
 
 
@@ -300,6 +326,9 @@ def analyze_audio(
         stem_path = separate_stems(str(original_file_path), song_folder, stem_type=stem_type)
         if stem_path != str(original_file_path):
             analysis_path = stem_path
+            print(f"[AudioAnalysis] Для анализа выбран stem: {Path(analysis_path).name}")
+        else:
+            print("[AudioAnalysis] Stem не выбран — используем оригинальный аудиофайл")
 
     beats = extract_beats(analysis_path, bpm)
     dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm, genre_params=genre_params)
