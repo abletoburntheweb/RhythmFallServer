@@ -392,7 +392,7 @@ def generate_drums():
         }
 
         final_genres = provided_genres if provided_genres is not None else (track_info.get("genres") if track_info else [])
-        final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else (final_genres[0] if final_genres else "groove"))
+        final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else "")
 
         response_data['track_info'] = {
             'title': manual_title or (track_info.get('title') if track_info else 'Unknown'),
@@ -400,7 +400,6 @@ def generate_drums():
             'genres': final_genres,
             'primary_genre': final_primary
         }
-
         print(f"[DrumGen] Successfully generated {len(notes)} notes ({drum_mode})")
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
         _report_status(task_id, "Формирование ответа...")

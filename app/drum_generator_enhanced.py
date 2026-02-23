@@ -143,8 +143,6 @@ class RhythmExtractor:
         for idx in onset_peaks:
             events.append({"time": float(times[idx]), "strength": float(onset_env[idx])})
 
-        if status_cb:
-            status_cb("Детекция ударных...")
         events = _merge_close_events(events, 0.05)
 
         strengths = [e["strength"] for e in events]
@@ -321,8 +319,6 @@ class GenrePatternMapper:
 
             current_time += measure_duration
 
-        if status_cb:
-            status_cb("Назначение линий...")
         return filtered
 
 
@@ -595,6 +591,8 @@ def generate_drums_notes(
         )
 
     extractor = RhythmExtractor(bpm)
+    if status_cb:
+        status_cb("Детекция ударных...")
     extraction = extractor.extract(analysis_path)
     confidence = extraction.get("confidence", 0.0)
     if confidence < 0.6:
@@ -717,6 +715,8 @@ def generate_drums_notes(
     events = sorted(events, key=lambda e: e["time"])
 
     all_events = [{"type": NoteType.DRUM, "time": e["time"], "size": 1.2} for e in events]
+    if status_cb:
+        status_cb("Назначение линий...")
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)
