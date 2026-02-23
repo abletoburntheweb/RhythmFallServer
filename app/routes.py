@@ -24,6 +24,24 @@ bp = Blueprint("main", __name__)
 os.makedirs("temp_uploads", exist_ok=True)
 os.makedirs("songs", exist_ok=True)
 
+TASK_PROGRESS = {}
+
+def _report_status(task_id: str, status_text: str):
+    if not task_id:
+        return
+    lst = TASK_PROGRESS.get(task_id)
+    if lst is None:
+        lst = []
+        TASK_PROGRESS[task_id] = lst
+    lst.append(status_text)
+
+@bp.route("/task_status", methods=["GET"])
+def task_status():
+    task_id = request.args.get("task_id", "")
+    if not task_id:
+        return jsonify({"error": "task_id required"}), 400
+    statuses = TASK_PROGRESS.get(task_id, [])
+    return jsonify({"task_id": task_id, "statuses": statuses, "status": "ok"})
 
 @bp.route("/")
 def home():
@@ -200,6 +218,7 @@ def generate_drums():
     print(f"DEBUG: Content-Type: {request.content_type}")
 
     temp_path = None
+    task_id = request.headers.get("X-Task-Id", "")
     try:
         if "audio_file" not in request.files:
             return jsonify({"error": "Missing 'audio_file' in multipart form"}), 400
@@ -224,6 +243,7 @@ def generate_drums():
         auto_identify_track = metadata.get("auto_identify_track", False)
         manual_artist = metadata.get("manual_artist", "")
         manual_title = metadata.get("manual_title", "")
+        progress_delay_seconds = float(metadata.get("progress_delay_seconds", 0.0))
         genres = metadata.get("genres")
         primary_genre = metadata.get("primary_genre")
 
@@ -270,6 +290,9 @@ def generate_drums():
 
         if manual_artist and manual_title:
             print(f"[DrumGen] Using manual artist/title: {manual_artist} - {manual_title}")
+            _report_status(task_id, "Идентификация трека...")
+            if progress_delay_seconds > 0:
+                time.sleep(progress_delay_seconds)
             is_unknown = (
                 manual_artist.strip().lower() == "unknown" and
                 manual_title.strip().lower() == "unknown"
@@ -294,6 +317,9 @@ def generate_drums():
                     }
         elif auto_identify_track:
             print("[DrumGen] Auto-identifying track from audio...")
+            _report_status(task_id, "Идентификация трека...")
+            if progress_delay_seconds > 0:
+                time.sleep(progress_delay_seconds)
             track_info = identify_track(temp_path)
             if track_info:
                 if track_info.get('success'):
@@ -325,7 +351,11 @@ def generate_drums():
             else None
         )
 
+        _report_status(task_id, "Определение жанров...")
+        if progress_delay_seconds > 0:
+            time.sleep(progress_delay_seconds)
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
+        _report_status(task_id, "Разделение на стемы...")
         notes = generator.generate_drums_notes(
             temp_path,
             bpm,
@@ -337,12 +367,14 @@ def generate_drums():
             auto_identify_track=False,
             use_filename_for_genres=(manual_artist and manual_title and not (manual_artist.lower() == "unknown" and manual_title.lower() == "unknown")),
             provided_genres=provided_genres,
-            provided_primary_genre=normalized_primary_genre
+            provided_primary_genre=normalized_primary_genre,
+            status_cb=lambda s: _report_status(task_id, s)
         )
 
         if not notes:
             return jsonify({"error": "No drum notes generated"}), 500
 
+        _report_status(task_id, "Сохранение нот...")
         generator.save_drums_notes(notes, temp_path, mode=drum_mode)
 
         drum_count = len([n for n in notes if n.get("type") == "DrumNote"])
@@ -371,6 +403,7 @@ def generate_drums():
 
         print(f"[DrumGen] Successfully generated {len(notes)} notes ({drum_mode})")
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
+        _report_status(task_id, "Формирование ответа...")
         return jsonify(response_data)
 
     except Exception as e:

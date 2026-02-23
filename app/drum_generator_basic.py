@@ -30,7 +30,8 @@ def generate_drums_notes(
     auto_identify_track: bool = False,
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
-    provided_primary_genre: Optional[str] = None
+    provided_primary_genre: Optional[str] = None,
+    status_cb=None
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот (basic) для: {song_path} (BPM: {bpm})")
 
@@ -44,6 +45,8 @@ def generate_drums_notes(
         print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
         print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
     else:
+        if status_cb:
+            status_cb("Разделение на стемы...")
         analysis = analyze_audio(
             song_path=song_path,
             bpm=bpm,
@@ -100,6 +103,8 @@ def generate_drums_notes(
             snare_times = analysis["snare_times"]
             dominant_onsets = analysis.get("dominant_onsets", [])
 
+    if status_cb:
+        status_cb("Детекция ударных...")
     if dominant_onsets:
         all_raw_events = sorted(set(dominant_onsets))
     else:
@@ -133,6 +138,8 @@ def generate_drums_notes(
         print("[DrumGen-Basic] Нет нот после синхронизации — используем грув-паттерн")
         synced_events = grooved_events
 
+    if status_cb:
+        status_cb("Назначение линий...")
     all_events = [{"type": NoteType.DRUM, "time": t} for t in synced_events]
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 

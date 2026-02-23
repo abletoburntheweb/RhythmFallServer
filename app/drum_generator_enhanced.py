@@ -143,6 +143,8 @@ class RhythmExtractor:
         for idx in onset_peaks:
             events.append({"time": float(times[idx]), "strength": float(onset_env[idx])})
 
+        if status_cb:
+            status_cb("Детекция ударных...")
         events = _merge_close_events(events, 0.05)
 
         strengths = [e["strength"] for e in events]
@@ -319,6 +321,8 @@ class GenrePatternMapper:
 
             current_time += measure_duration
 
+        if status_cb:
+            status_cb("Назначение линий...")
         return filtered
 
 
@@ -536,7 +540,8 @@ def generate_drums_notes(
     auto_identify_track: bool = False,
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
-    provided_primary_genre: Optional[str] = None
+    provided_primary_genre: Optional[str] = None,
+    status_cb=None
 ) -> Optional[List[Dict]]:
     print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
 
