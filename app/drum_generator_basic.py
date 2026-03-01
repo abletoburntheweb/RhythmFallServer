@@ -31,9 +31,13 @@ def generate_drums_notes(
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
     provided_primary_genre: Optional[str] = None,
-    status_cb=None
+    status_cb=None,
+    cancel_cb=None
 ) -> Optional[List[Dict]]:
     print(f"🎧 Генерация барабанных нот (basic) для: {song_path} (BPM: {bpm})")
+
+    if cancel_cb:
+        cancel_cb()
 
     unique_genres = []
     primary_genre = None
@@ -45,6 +49,8 @@ def generate_drums_notes(
         print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
         print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
     else:
+        if cancel_cb:
+            cancel_cb()
         if status_cb:
             status_cb("Разделение на стемы...")
         analysis = analyze_audio(
@@ -54,8 +60,11 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             track_info=track_info,
-            stem_type="drums"
+            stem_type="drums",
+            cancel_cb=cancel_cb
         )
+        if cancel_cb:
+            cancel_cb()
         bpm = analysis["bpm"]
         beats = np.array(analysis["beats"])
         kick_times = analysis["kick_times"]
@@ -77,12 +86,17 @@ def generate_drums_notes(
     if provided_genres is not None:
         from .audio_analysis import extract_drum_hits
         try:
+            if cancel_cb:
+                cancel_cb()
             drum_hits = extract_drum_hits(
                 song_path=song_path,
                 bpm=bpm,
                 use_stems=use_stems,
-                use_madmom_beats=use_madmom_beats
+                use_madmom_beats=use_madmom_beats,
+                cancel_cb=cancel_cb
             )
+            if cancel_cb:
+                cancel_cb()
             beats = np.array(drum_hits["beats"])
             kick_times = drum_hits["kick_times"]
             snare_times = drum_hits["snare_times"]
@@ -96,8 +110,11 @@ def generate_drums_notes(
                 auto_identify_track=False,
                 use_filename_for_genres=False,
                 track_info=None,
-                stem_type="drums"
+                stem_type="drums",
+                cancel_cb=cancel_cb
             )
+            if cancel_cb:
+                cancel_cb()
             beats = np.array(analysis["beats"])
             kick_times = analysis["kick_times"]
             snare_times = analysis["snare_times"]
@@ -105,6 +122,8 @@ def generate_drums_notes(
 
     if status_cb:
         status_cb("Детекция ударных...")
+    if cancel_cb:
+        cancel_cb()
     if dominant_onsets:
         all_raw_events = sorted(set(dominant_onsets))
     else:
@@ -140,6 +159,8 @@ def generate_drums_notes(
 
     if status_cb:
         status_cb("Назначение линий...")
+    if cancel_cb:
+        cancel_cb()
     all_events = [{"type": NoteType.DRUM, "time": t} for t in synced_events]
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 

@@ -537,9 +537,13 @@ def generate_drums_notes(
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
     provided_primary_genre: Optional[str] = None,
-    status_cb=None
+    status_cb=None,
+    cancel_cb=None
 ) -> Optional[List[Dict]]:
     print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
+
+    if cancel_cb:
+        cancel_cb()
 
     analysis = analyze_audio(
         song_path=song_path,
@@ -548,8 +552,11 @@ def generate_drums_notes(
         auto_identify_track=auto_identify_track,
         use_filename_for_genres=use_filename_for_genres,
         track_info=track_info,
-        stem_type="drums"
+        stem_type="drums",
+        cancel_cb=cancel_cb
     )
+    if cancel_cb:
+        cancel_cb()
 
     if not analysis or "bpm" not in analysis:
         print("[DrumGen-Enhanced] Fallback: отсутствуют данные анализа")
@@ -564,7 +571,9 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre
+            provided_primary_genre=provided_primary_genre,
+            status_cb=status_cb,
+            cancel_cb=cancel_cb
         )
 
     bpm = analysis["bpm"]
@@ -600,7 +609,11 @@ def generate_drums_notes(
     extractor = RhythmExtractor(bpm)
     if status_cb:
         status_cb("Детекция ударных...")
+    if cancel_cb:
+        cancel_cb()
     extraction = extractor.extract(analysis_path)
+    if cancel_cb:
+        cancel_cb()
     confidence = extraction.get("confidence", 0.0)
     if confidence < 0.6:
         print(f"[DrumGen-Enhanced] Fallback: низкая уверенность анализа ({confidence:.2f})")
@@ -615,7 +628,9 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre
+            provided_primary_genre=provided_primary_genre,
+            status_cb=status_cb,
+            cancel_cb=cancel_cb
         )
 
     events = extraction.get("events", [])
@@ -632,7 +647,9 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre
+            provided_primary_genre=provided_primary_genre,
+            status_cb=status_cb,
+            cancel_cb=cancel_cb
         )
 
     drum_start_window = genre_params.get("drum_start_window", 4.0)
@@ -659,7 +676,9 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre
+            provided_primary_genre=provided_primary_genre,
+            status_cb=status_cb,
+            cancel_cb=cancel_cb
         )
 
     mapper = GenrePatternMapper(bpm, beats[0] if beats.size else 0.0)
@@ -677,6 +696,8 @@ def generate_drums_notes(
         beats[0] if beats.size else 0.0,
         allow_eighths=genre_label not in {"electronic"}
     )
+    if cancel_cb:
+        cancel_cb()
     events = quantizer.quantize(events, tolerance=0.01)
 
     events = _normalize_events(events)
@@ -713,7 +734,9 @@ def generate_drums_notes(
         auto_identify_track=auto_identify_track,
         use_filename_for_genres=use_filename_for_genres,
         provided_genres=provided_genres,
-        provided_primary_genre=provided_primary_genre
+        provided_primary_genre=provided_primary_genre,
+        status_cb=status_cb,
+        cancel_cb=cancel_cb
     )
     basic_count = len(basic_notes) if basic_notes else 0
     events = _limit_to_basic_ratio(events, basic_count)
@@ -724,6 +747,8 @@ def generate_drums_notes(
     all_events = [{"type": NoteType.DRUM, "time": e["time"], "size": 1.2} for e in events]
     if status_cb:
         status_cb("Назначение линий...")
+    if cancel_cb:
+        cancel_cb()
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)

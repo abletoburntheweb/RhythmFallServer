@@ -5,6 +5,7 @@ import os
 import time
 import json
 from pathlib import Path
+import shutil
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator_basic
 from . import drum_generator_enhanced
@@ -25,6 +26,8 @@ os.makedirs("temp_uploads", exist_ok=True)
 os.makedirs("songs", exist_ok=True)
 
 TASK_PROGRESS = {}
+TASK_CANCELLED = set()
+TASK_CONTEXT = {}
 
 def _report_status(task_id: str, status_text: str):
     if not task_id:
@@ -35,6 +38,51 @@ def _report_status(task_id: str, status_text: str):
         TASK_PROGRESS[task_id] = lst
     lst.append(status_text)
 
+def _register_task_context(task_id: str, temp_path: str):
+    if not task_id or not temp_path:
+        return
+    base_name = Path(temp_path).stem
+    song_folder = Path("temp_uploads") / base_name
+    TASK_CONTEXT[task_id] = {
+        "temp_path": temp_path,
+        "song_folder": str(song_folder)
+    }
+
+def _mark_cancelled(task_id: str):
+    if not task_id:
+        return
+    TASK_CANCELLED.add(task_id)
+    _report_status(task_id, "Отмена запрошена")
+    _report_status(task_id, "Отменено пользователем")
+
+def _is_cancelled(task_id: str) -> bool:
+    if not task_id:
+        return False
+    return task_id in TASK_CANCELLED
+
+def _cleanup_task(task_id: str):
+    ctx = TASK_CONTEXT.get(task_id, {})
+    temp_path = ctx.get("temp_path")
+    song_folder = ctx.get("song_folder")
+    if temp_path and os.path.exists(temp_path):
+        try:
+            os.remove(temp_path)
+            print(f"[CLEANUP] Removed temp file: {temp_path}")
+        except Exception as e:
+            print(f"[WARNING] Failed to remove temp file: {e}")
+    if song_folder and os.path.isdir(song_folder):
+        try:
+            shutil.rmtree(song_folder, ignore_errors=True)
+            print(f"[CLEANUP] Removed song folder: {song_folder}")
+        except Exception as e:
+            print(f"[WARNING] Failed to remove song folder: {e}")
+    TASK_CONTEXT.pop(task_id, None)
+    TASK_CANCELLED.discard(task_id)
+
+def _check_cancel(task_id: str):
+    if _is_cancelled(task_id):
+        raise RuntimeError("__CANCELLED__")
+
 @bp.route("/task_status", methods=["GET"])
 def task_status():
     task_id = request.args.get("task_id", "")
@@ -42,6 +90,22 @@ def task_status():
         return jsonify({"error": "task_id required"}), 400
     statuses = TASK_PROGRESS.get(task_id, [])
     return jsonify({"task_id": task_id, "statuses": statuses, "status": "ok"})
+
+@bp.route("/cancel_task", methods=["POST", "GET"])
+def cancel_task():
+    task_id = None
+    if request.method == "GET":
+        task_id = request.args.get("task_id", "")
+    else:
+        try:
+            data = request.get_json(force=True, silent=True) or {}
+        except Exception:
+            data = {}
+        task_id = (data.get("task_id") or request.args.get("task_id", "")).strip()
+    if not task_id:
+        return jsonify({"error": "task_id required"}), 400
+    _mark_cancelled(task_id)
+    return jsonify({"task_id": task_id, "status": "cancel_requested"})
 
 @bp.route("/")
 def home():
@@ -185,6 +249,7 @@ def generate_drums():
     temp_path = None
     task_id = request.headers.get("X-Task-Id", "")
     try:
+        _check_cancel(task_id)
         if "audio_file" not in request.files:
             return jsonify({"error": "Missing 'audio_file' in multipart form"}), 400
 
@@ -232,9 +297,12 @@ def generate_drums():
         audio_file.save(temp_path)
         print(f"[DrumGen] Audio saved: {temp_path}")
         print(f"[DrumGen] Original filename (Unicode-safe): {original_filename}")
+        _register_task_context(task_id, temp_path)
+        _check_cancel(task_id)
 
         if bpm is None:
             print("[DrumGen] BPM not provided, calculating...")
+            _check_cancel(task_id)
             bpm_result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False)
             if bpm_result.get("bpm") is None:
                 error_msg = bpm_result.get("error", "Failed to calculate BPM")
@@ -256,6 +324,7 @@ def generate_drums():
             _report_status(task_id, "Идентификация трека...")
             if progress_delay_seconds > 0:
                 time.sleep(progress_delay_seconds)
+            _check_cancel(task_id)
             track_info = identify_track(temp_path)
             if track_info:
                 if track_info.get('success'):
@@ -264,6 +333,7 @@ def generate_drums():
                     print("[DrumGen] Auto-identification failed — using filename metadata for genre lookup")
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     try:
+                        _check_cancel(task_id)
                         detected_genres = detect_genres(track_info['artist'], track_info['title'])
                         if detected_genres:
                             original = track_info.get('genres', [])[:]
@@ -278,6 +348,7 @@ def generate_drums():
         else:
             print("[DrumGen] No track identification requested")
             track_info = None
+        _check_cancel(task_id)
 
         normalized_genres = [g for g in (genres or []) if isinstance(g, str) and g.strip()]
         provided_genres = normalized_genres if normalized_genres else None
@@ -292,6 +363,7 @@ def generate_drums():
             time.sleep(progress_delay_seconds)
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
         _report_status(task_id, "Разделение на стемы...")
+        _check_cancel(task_id)
         notes = generator.generate_drums_notes(
             temp_path,
             bpm,
@@ -304,14 +376,18 @@ def generate_drums():
             use_filename_for_genres=False,
             provided_genres=provided_genres,
             provided_primary_genre=normalized_primary_genre,
-            status_cb=lambda s: _report_status(task_id, s)
+            status_cb=lambda s: _report_status(task_id, s),
+            cancel_cb=lambda: _check_cancel(task_id)
         )
+        _check_cancel(task_id)
 
         if not notes:
             return jsonify({"error": "No drum notes generated"}), 500
 
         _report_status(task_id, "Сохранение нот...")
+        _check_cancel(task_id)
         generator.save_drums_notes(notes, temp_path, mode=drum_mode)
+        _check_cancel(task_id)
 
         drum_count = len([n for n in notes if n.get("type") == "DrumNote"])
         response_data = {
@@ -341,18 +417,28 @@ def generate_drums():
         _report_status(task_id, "Формирование ответа...")
         return jsonify(response_data)
 
+    except RuntimeError as e:
+        if str(e) == "__CANCELLED__":
+            print(f"[DrumGen] Task cancelled: {task_id}")
+            _report_status(task_id, "Отменено пользователем")
+            _cleanup_task(task_id)
+            return jsonify({"status": "cancelled_by_user", "message": "Отменено пользователем", "task_id": task_id}), 200
+        raise
     except Exception as e:
         print(f"[DrumGen] Exception: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
     finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-                print(f"[CLEANUP] Removed temp file: {temp_path}")
-            except Exception as e:
-                print(f"[WARNING] Failed to remove temp file: {e}")
+        if _is_cancelled(task_id):
+            _cleanup_task(task_id)
+        else:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    print(f"[CLEANUP] Removed temp file: {temp_path}")
+                except Exception as e:
+                    print(f"[WARNING] Failed to remove temp file: {e}")
 
 
 @bp.route("/generate_notes", methods=["POST"])
@@ -407,5 +493,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/cancel_task", "/songs", "/health"]
     })
