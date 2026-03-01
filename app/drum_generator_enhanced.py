@@ -571,8 +571,15 @@ def generate_drums_notes(
     beats = np.array(analysis["beats"])
     genre_params = analysis.get("genre_params", {})
     unique_genres = analysis.get("genres", [])
-    track_info = analysis.get("track_info") or track_info
+    track_info = analysis.get("track_info") or track_info or {}
     analysis_path = analysis.get("analysis_path", song_path)
+
+    if provided_genres is not None:
+        pg = [g.strip() for g in provided_genres if isinstance(g, str) and g.strip()]
+        if pg:
+            unique_genres = list({*unique_genres, *pg})
+    if isinstance(provided_primary_genre, str) and provided_primary_genre.strip():
+        track_info["primary_genre"] = provided_primary_genre.strip()
 
     if beats.size < 4 or not LIBROSA_AVAILABLE:
         print("[DrumGen-Enhanced] Fallback: недостаточно битов или librosa недоступна")
