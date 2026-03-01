@@ -51,7 +51,6 @@ def home():
             "analyze_bpm": "POST /analyze_bpm - Analyze BPM from audio",
             "generate_drums": "POST /generate_drums - Generate drum notes",
             "identify_track": "POST /identify_track - Identify track by audio",
-            "get_genres_manual": "POST /get_genres_manual - Get genres for manually entered artist/title",
             "list_songs": "GET /songs - List available songs",
             "health": "GET /health - Health check"
         }
@@ -178,40 +177,6 @@ def identify_track_endpoint():
                 print(f"[WARNING] Failed to remove temp file: {e}")
 
 
-@bp.route("/get_genres_manual", methods=["POST"])
-def get_genres_manual():
-    try:
-        data = request.get_json(force=True)
-        artist = data.get("artist")
-        title = data.get("title")
-
-        if not artist or not title:
-            return jsonify({"error": "Both 'artist' and 'title' are required."}), 400
-
-        print(f"[ManualGenreDetect] Getting genres for: {artist} - {title}")
-
-        detected_genres = []
-        if GENRE_DETECTION_AVAILABLE:
-            detected_genres = detect_genres(artist, title)
-        else:
-            print("[ManualGenreDetect] Genre detection not available.")
-
-        print(f"[ManualGenreDetect] Detected genres: {detected_genres}")
-
-        return jsonify({
-            "artist": artist,
-            "title": title,
-            "genres": detected_genres,
-            "status": "success"
-        })
-
-    except Exception as e:
-        print(f"[ManualGenreDetect] Exception: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
     print("DEBUG: /generate_drums request received")
@@ -241,8 +206,6 @@ def generate_drums():
         sync_tolerance = metadata.get("sync_tolerance", 0.2)
         generation_mode = metadata.get("generation_mode", "basic")
         auto_identify_track = metadata.get("auto_identify_track", False)
-        manual_artist = metadata.get("manual_artist", "")
-        manual_title = metadata.get("manual_title", "")
         progress_delay_seconds = float(metadata.get("progress_delay_seconds", 0.0))
         genres = metadata.get("genres")
         primary_genre = metadata.get("primary_genre")
@@ -288,34 +251,7 @@ def generate_drums():
 
         track_info = None
 
-        if manual_artist and manual_title:
-            print(f"[DrumGen] Using manual artist/title: {manual_artist} - {manual_title}")
-            _report_status(task_id, "Идентификация трека...")
-            if progress_delay_seconds > 0:
-                time.sleep(progress_delay_seconds)
-            is_unknown = (
-                manual_artist.strip().lower() == "unknown" and
-                manual_title.strip().lower() == "unknown"
-            )
-            if not is_unknown and GENRE_DETECTION_AVAILABLE:
-                try:
-                    detected_genres = detect_genres(manual_artist, manual_title)
-                    track_info = {
-                        'title': manual_title,
-                        'artist': manual_artist,
-                        'genres': detected_genres or [],
-                        'success': True
-                    }
-                    print(f"[DrumGen] Genres from manual input: {detected_genres}")
-                except Exception as e:
-                    print(f"[DrumGen] Genre detection failed: {e}")
-                    track_info = {
-                        'title': manual_title,
-                        'artist': manual_artist,
-                        'genres': [],
-                        'success': True
-                    }
-        elif auto_identify_track:
+        if auto_identify_track:
             print("[DrumGen] Auto-identifying track from audio...")
             _report_status(task_id, "Идентификация трека...")
             if progress_delay_seconds > 0:
@@ -365,7 +301,7 @@ def generate_drums():
             use_stems=True,
             track_info=track_info,
             auto_identify_track=False,
-            use_filename_for_genres=(manual_artist and manual_title and not (manual_artist.lower() == "unknown" and manual_title.lower() == "unknown")),
+            use_filename_for_genres=False,
             provided_genres=provided_genres,
             provided_primary_genre=normalized_primary_genre,
             status_cb=lambda s: _report_status(task_id, s)
@@ -395,8 +331,8 @@ def generate_drums():
         final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else "")
 
         response_data['track_info'] = {
-            'title': manual_title or (track_info.get('title') if track_info else 'Unknown'),
-            'artist': manual_artist or (track_info.get('artist') if track_info else 'Unknown'),
+            'title': (track_info.get('title') if track_info else 'Unknown'),
+            'artist': (track_info.get('artist') if track_info else 'Unknown'),
             'genres': final_genres,
             'primary_genre': final_primary
         }
@@ -471,5 +407,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/get_genres_manual", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/songs", "/health"]
     })
