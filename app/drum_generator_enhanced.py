@@ -133,7 +133,7 @@ class RhythmExtractor:
         min_distance_frames = max(1, int(0.05 * fps))
         kick_peaks = _detect_peaks(kick_energy, 0.35, min_distance_frames)
         snare_peaks = _detect_peaks(snare_energy, 0.35, min_distance_frames)
-        onset_peaks = _detect_peaks(onset_env, 0.7, min_distance_frames)
+        onset_peaks = _detect_peaks(onset_env, 0.6, min_distance_frames)
 
         events = []
         for idx in kick_peaks:
@@ -144,6 +144,8 @@ class RhythmExtractor:
             events.append({"time": float(times[idx]), "strength": float(onset_env[idx])})
 
         events = _merge_close_events(events, 0.05)
+        head_ignore_sec = 2.5
+        events = [e for e in events if e["time"] >= head_ignore_sec]
 
         strengths = [e["strength"] for e in events]
         strong_ratio = float(np.mean([1.0 if s >= 0.8 else 0.0 for s in strengths])) if strengths else 0.0
@@ -285,10 +287,14 @@ class GenrePatternMapper:
             if not measure_events:
                 current_time += measure_duration
                 continue
+            if density < 0.3:
+                filtered.extend(measure_events)
+                current_time += measure_duration
+                continue
 
             pattern_positions = None
             if genre in {"house", "techno", "trance", "electronic"}:
-                pattern_positions = [0.0, 2.0]
+                pattern_positions = [0.0, 1.0, 2.0, 3.0]
             elif genre in {"drum and bass", "funk"}:
                 if density >= 0.8 and interval_cv <= 0.15:
                     pattern_positions = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
@@ -309,7 +315,7 @@ class GenrePatternMapper:
                 if any(abs(e["time"] - target_time) <= 0.03 for e in measure_events):
                     matched += 1
 
-            if matched / max(1, len(pattern_positions)) >= 0.75:
+            if matched / max(1, len(pattern_positions)) >= 0.6:
                 for e in measure_events:
                     measure_pos = (e["time"] - measure_start) / beat_interval
                     if any(abs(measure_pos - pos) <= 0.15 for pos in pattern_positions):
@@ -501,16 +507,30 @@ def _apply_top_percent_per_cycle(events: List[Dict], bpm: float) -> List[Dict]:
     filtered = []
     current = start
     while current <= end:
-        window_events = _limit_top_percent(events, current, current + cycle_duration, 0.3)
+        window_events = _limit_top_percent(events, current, current + cycle_duration, 0.5)
         filtered.extend(window_events)
         current += cycle_duration
     return filtered
 
 
-def _limit_to_basic_ratio(events: List[Dict], basic_count: int) -> List[Dict]:
-    if basic_count <= 0 or not events:
+def _limit_to_basic_ratio(events: List[Dict], basic_count: int, bpm: float, genre_label: Optional[str] = None) -> List[Dict]:
+    if not events:
         return events
-    target = int(np.floor(basic_count * 0.7))
+    if basic_count <= 0:
+        return events
+    start = events[0]["time"]
+    end = events[-1]["time"]
+    duration = max(1e-3, end - start)
+    beat_interval = 60.0 / bpm if bpm > 0 else 0.5
+    total_beats = max(1.0, duration / beat_interval)
+    max_per_beat = 1.2
+    if genre_label in {"drum and bass", "hardcore", "metal", "power metal"}:
+        max_per_beat = 2.0
+    elif genre_label in {"electronic", "house", "techno", "trance", "pop", "hyperpop"}:
+        max_per_beat = 1.0
+    upper_cap = int(np.floor(total_beats * max_per_beat))
+    base_target = int(np.floor(basic_count * 0.6))
+    target = max(1, min(base_target, upper_cap))
     if len(events) <= target:
         return events
     return sorted(events, key=lambda e: e["strength"], reverse=True)[:target]
@@ -537,13 +557,9 @@ def generate_drums_notes(
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
     provided_primary_genre: Optional[str] = None,
-    status_cb=None,
-    cancel_cb=None
+    status_cb=None
 ) -> Optional[List[Dict]]:
     print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
-
-    if cancel_cb:
-        cancel_cb()
 
     analysis = analyze_audio(
         song_path=song_path,
@@ -552,11 +568,8 @@ def generate_drums_notes(
         auto_identify_track=auto_identify_track,
         use_filename_for_genres=use_filename_for_genres,
         track_info=track_info,
-        stem_type="drums",
-        cancel_cb=cancel_cb
+        stem_type="drums"
     )
-    if cancel_cb:
-        cancel_cb()
 
     if not analysis or "bpm" not in analysis:
         print("[DrumGen-Enhanced] Fallback: отсутствуют данные анализа")
@@ -571,9 +584,7 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre,
-            status_cb=status_cb,
-            cancel_cb=cancel_cb
+            provided_primary_genre=provided_primary_genre
         )
 
     bpm = analysis["bpm"]
@@ -582,11 +593,15 @@ def generate_drums_notes(
     unique_genres = analysis.get("genres", [])
     track_info = analysis.get("track_info") or track_info or {}
     analysis_path = analysis.get("analysis_path", song_path)
+    print(f"[DrumGen-Enhanced] Genres from analysis: {unique_genres if unique_genres else 'не определены'}")
+    print(f"[DrumGen-Enhanced] Track primary_genre: {track_info.get('primary_genre') if isinstance(track_info, dict) else 'не задан'}")
 
     if provided_genres is not None:
         pg = [g.strip() for g in provided_genres if isinstance(g, str) and g.strip()]
         if pg:
             unique_genres = list({*unique_genres, *pg})
+    print(f"[DrumGen-Enhanced] Genres after provided merge: {unique_genres if unique_genres else 'не определены'}")
+    print(f"[DrumGen-Enhanced] use_filename_for_genres={use_filename_for_genres}, auto_identify_track={auto_identify_track}")
     if isinstance(provided_primary_genre, str) and provided_primary_genre.strip():
         track_info["primary_genre"] = provided_primary_genre.strip()
 
@@ -609,11 +624,7 @@ def generate_drums_notes(
     extractor = RhythmExtractor(bpm)
     if status_cb:
         status_cb("Детекция ударных...")
-    if cancel_cb:
-        cancel_cb()
     extraction = extractor.extract(analysis_path)
-    if cancel_cb:
-        cancel_cb()
     confidence = extraction.get("confidence", 0.0)
     if confidence < 0.6:
         print(f"[DrumGen-Enhanced] Fallback: низкая уверенность анализа ({confidence:.2f})")
@@ -628,9 +639,7 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre,
-            status_cb=status_cb,
-            cancel_cb=cancel_cb
+            provided_primary_genre=provided_primary_genre
         )
 
     events = extraction.get("events", [])
@@ -647,9 +656,7 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre,
-            status_cb=status_cb,
-            cancel_cb=cancel_cb
+            provided_primary_genre=provided_primary_genre
         )
 
     drum_start_window = genre_params.get("drum_start_window", 4.0)
@@ -660,7 +667,7 @@ def generate_drums_notes(
 
     events = _apply_top_percent_per_cycle(events, bpm)
     events = _dominant_in_window(events, 0.5)
-    events = [e for e in events if e["strength"] >= 0.8]
+    events = [e for e in events if e["strength"] >= 0.7]
     events = _normalize_events(events)
 
     if not events:
@@ -676,9 +683,7 @@ def generate_drums_notes(
             auto_identify_track=auto_identify_track,
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
-            provided_primary_genre=provided_primary_genre,
-            status_cb=status_cb,
-            cancel_cb=cancel_cb
+            provided_primary_genre=provided_primary_genre
         )
 
     mapper = GenrePatternMapper(bpm, beats[0] if beats.size else 0.0)
@@ -690,20 +695,20 @@ def generate_drums_notes(
         extraction.get("key", "C"),
         unique_genres
     )
+    print(f"[DrumGen-Enhanced] Classified genre_label: {genre_label}")
 
     quantizer = Quantizer(
         bpm,
         beats[0] if beats.size else 0.0,
-        allow_eighths=genre_label not in {"electronic"}
+        allow_eighths=True
     )
-    if cancel_cb:
-        cancel_cb()
     events = quantizer.quantize(events, tolerance=0.01)
 
     events = _normalize_events(events)
     density = _compute_density(events, bpm)
     intervals = [events[i]["time"] - events[i - 1]["time"] for i in range(1, len(events))]
     interval_cv = _coefficient_of_variation(intervals)
+    print(f"[DrumGen-Enhanced] Pre-mapper density: {density:.2f}, interval_cv: {interval_cv:.3f}")
 
     events = mapper.apply_with_metadata(
         events,
@@ -734,12 +739,10 @@ def generate_drums_notes(
         auto_identify_track=auto_identify_track,
         use_filename_for_genres=use_filename_for_genres,
         provided_genres=provided_genres,
-        provided_primary_genre=provided_primary_genre,
-        status_cb=status_cb,
-        cancel_cb=cancel_cb
+        provided_primary_genre=provided_primary_genre
     )
     basic_count = len(basic_notes) if basic_notes else 0
-    events = _limit_to_basic_ratio(events, basic_count)
+    events = _limit_to_basic_ratio(events, basic_count, bpm, genre_label)
 
     events = _normalize_events(events)
     events = sorted(events, key=lambda e: e["time"])
@@ -747,8 +750,6 @@ def generate_drums_notes(
     all_events = [{"type": NoteType.DRUM, "time": e["time"], "size": 1.2} for e in events]
     if status_cb:
         status_cb("Назначение линий...")
-    if cancel_cb:
-        cancel_cb()
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)
