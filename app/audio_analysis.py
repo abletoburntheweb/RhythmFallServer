@@ -3,7 +3,7 @@ import os
 import json
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 import shutil
 import bisect
 from .track_detector import REQUESTS_AVAILABLE, identify_track
@@ -284,8 +284,11 @@ def analyze_audio(
     auto_identify_track: bool = False,
     use_filename_for_genres: bool = True,
     track_info: Optional[Dict] = None,
-    stem_type: str = "drums"
+    stem_type: str = "drums",
+    cancel_cb: Optional[Callable[[], None]] = None
 ) -> Dict:
+    if cancel_cb:
+        cancel_cb()
     base_name = Path(song_path).stem
     song_folder = TEMP_UPLOADS_DIR / base_name
     song_folder.mkdir(parents=True, exist_ok=True)
@@ -298,6 +301,8 @@ def analyze_audio(
 
     if not track_info and auto_identify_track:
         track_info = identify_track(song_path)
+        if cancel_cb:
+            cancel_cb()
 
     all_genres = []
     if track_info and track_info.get('genres'):
@@ -305,6 +310,8 @@ def analyze_audio(
 
     if use_filename_for_genres and not all_genres and GENRE_DETECTION_AVAILABLE:
         if track_info and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
+            if cancel_cb:
+                cancel_cb()
             genres = detect_genres(track_info['artist'], track_info['title'])
             if genres:
                 all_genres.extend(genres)
@@ -313,6 +320,8 @@ def analyze_audio(
     genre_params = get_genre_params(unique_genres, GENRE_CONFIGS, GENRE_ALIAS_MAP)
 
     if bpm is None or bpm <= 0:
+        if cancel_cb:
+            cancel_cb()
         if LIBROSA_AVAILABLE:
             y, sr = librosa.load(analysis_path, sr=None, mono=True, dtype='float32')
             try:
@@ -323,6 +332,8 @@ def analyze_audio(
             bpm = 120.0
 
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
+        if cancel_cb:
+            cancel_cb()
         stem_path = separate_stems(str(original_file_path), song_folder, stem_type=stem_type)
         if stem_path != str(original_file_path):
             analysis_path = stem_path
@@ -330,12 +341,20 @@ def analyze_audio(
         else:
             print("[AudioAnalysis] Stem не выбран — используем оригинальный аудиофайл")
 
+    if cancel_cb:
+        cancel_cb()
     beats = extract_beats(analysis_path, bpm)
+    if cancel_cb:
+        cancel_cb()
     dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm, genre_params=genre_params)
 
     kick_times, snare_times = [], []
     if stem_type == "drums":
+        if cancel_cb:
+            cancel_cb()
         kick_times, snare_times = detect_drum_events(analysis_path, bpm=bpm, genre_params=genre_params)
+        if cancel_cb:
+            cancel_cb()
 
     return {
         "bpm": float(bpm),
@@ -388,7 +407,8 @@ def extract_drum_hits(
     song_path: str,
     bpm: Optional[float] = None,
     use_stems: bool = True,
-    use_madmom_beats: bool = True
+    use_madmom_beats: bool = True,
+    cancel_cb: Optional[Callable[[], None]] = None
 ) -> Dict[str, List[float]]:
     base_name = Path(song_path).stem
     temp_dir = TEMP_UPLOADS_DIR / base_name
@@ -401,15 +421,23 @@ def extract_drum_hits(
     analysis_path = str(local_path)
 
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
+        if cancel_cb:
+            cancel_cb()
         stem_path = separate_stems(str(local_path), temp_dir, stem_type="drums")
         if stem_path != str(local_path):
             analysis_path = stem_path
 
+    if cancel_cb:
+        cancel_cb()
     beats = extract_beats(analysis_path, bpm)
+    if cancel_cb:
+        cancel_cb()
     dominant_onsets = extract_dominant_onsets(analysis_path, bpm=bpm)
 
     kick_times, snare_times = [], []
     if LIBROSA_AVAILABLE:
+        if cancel_cb:
+            cancel_cb()
         y, sr = librosa.load(analysis_path, sr=None, mono=True, dtype='float32')
         kick_times, snare_times = detect_kick_snare_with_essentia(y, sr, analysis_path)
 
