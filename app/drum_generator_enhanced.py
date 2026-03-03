@@ -150,24 +150,24 @@ def generate_drums_notes(
 
     added: List[float] = []
     tol = 0.03
-    genre_caps = {
-        "pop": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.15},
-        "hyperpop": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.15},
-        "k-pop": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.15},
-        "j-pop": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.15},
-        "electronic": {"min": 4, "max": 6, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
-        "house": {"min": 4, "max": 6, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
-        "techno": {"min": 4, "max": 6, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
-        "trance": {"min": 4, "max": 6, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
-        "drum and bass": {"min": 4, "max": 8, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.12},
-        "rap": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.12},
-        "r&b": {"min": 2, "max": 4, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.12},
-        "rock": {"min": 2, "max": 5, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
-        "metal": {"min": 2, "max": 5, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.08},
-        "hardcore": {"min": 2, "max": 5, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.08},
-        "default": {"min": 3, "max": 5, "per_measure": 2, "per_measure_break": 3, "cap_ratio": 0.10},
+    hard_caps = {
+        "pop": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+        "hyperpop": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+        "k-pop": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+        "j-pop": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+        "electronic": {"min": 5, "max": 8, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+        "house": {"min": 5, "max": 8, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+        "techno": {"min": 5, "max": 8, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+        "trance": {"min": 5, "max": 8, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+        "drum and bass": {"min": 6, "max": 10, "per_measure": 3, "per_measure_break": 5, "cap_ratio": 0.28},
+        "rap": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.22},
+        "r&b": {"min": 3, "max": 6, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.22},
+        "rock": {"min": 3, "max": 7, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+        "metal": {"min": 3, "max": 7, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+        "hardcore": {"min": 3, "max": 7, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+        "default": {"min": 4, "max": 7, "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
     }
-    caps = genre_caps.get(genre_label, genre_caps["default"])
+    caps = hard_caps.get(genre_label, hard_caps["default"])
     total_cap = int(len(base_times) * caps["cap_ratio"]) if base_times else 0
     added_total = 0
     for (m_start, m_end) in bounds:
@@ -192,18 +192,24 @@ def generate_drums_notes(
         pattern_positions = None
         if genre_label in {"electronic", "house", "techno", "trance"}:
             pattern_positions = [0.0, 2.0]
-            if is_break:
-                pattern_positions += [0.5, 1.5, 2.5, 3.5]
+            pattern_positions += [0.5, 1.5, 2.5, 3.5]
+            pattern_positions += [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]
         elif genre_label in {"drum and bass", "funk"}:
             pattern_positions = [0.0, 2.0]
-            if is_break:
-                pattern_positions += [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
+            pattern_positions += [0.5, 1.5, 2.5, 3.5]
+            pattern_positions += [0.25, 0.75, 1.0, 1.25, 1.75, 2.0, 2.25, 2.75, 3.0, 3.25, 3.75]
         elif genre_label in {"pop", "hyperpop", "k-pop", "j-pop"}:
             pattern_positions = [0.0, 2.0]
             if is_break or len(base_in_measure) < target_min:
                 pattern_positions += [0.5, 1.5, 2.5, 3.5]
+            pattern_positions += [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]
+        elif genre_label in {"rap", "r&b"}:
+            pattern_positions = [0.0, 2.0]
+            pattern_positions += [0.5, 1.5, 2.5, 3.5]
+            pattern_positions += [0.75, 1.25, 2.75, 3.25]
         else:
             pattern_positions = [0.0, 2.0]
+            pattern_positions += [0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]
 
         proposed = []
         for pos in pattern_positions:

@@ -317,7 +317,6 @@ def generate_drums():
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid 'bpm': must be number 1-300"}), 400
 
-        # Normalize client-provided genres before any identification/search
         normalized_genres = [g for g in (genres or []) if isinstance(g, str) and g.strip()]
         provided_genres = normalized_genres if normalized_genres else None
         normalized_primary_genre = (
@@ -325,7 +324,6 @@ def generate_drums():
             if primary_genre and primary_genre.strip().lower() != "unknown"
             else None
         )
-        # If client provided genre(s), do NOT auto-identify or search genres
         use_auto_identify = bool(auto_identify_track) and (normalized_primary_genre is None) and (provided_genres is None)
 
         track_info = None
@@ -342,7 +340,6 @@ def generate_drums():
                     print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
                 else:
                     print("[DrumGen] Auto-identification failed — using filename metadata for genre lookup")
-                # Only search genres when they are missing/unknown
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     try:
                         _check_cancel(task_id)
