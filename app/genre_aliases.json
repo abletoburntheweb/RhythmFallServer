@@ -5,7 +5,8 @@
   "rap": ["trap", "cloud rap", "drill", "grime", "trap music"],
   "electronic": [
     "electronica", "idm", "electro", "glitch", "chiptune", "bitpop",
-    "nintendocore", "video game music", "retro gaming", "synthwave"
+    "nintendocore", "video game music", "retro gaming", "synthwave",
+    "edm", "electronic dance music", "dance", "indietronica"
   ],
   "techno": ["detroit techno", "minimal techno", "acid techno"],
   "house": [
@@ -14,6 +15,7 @@
   ],
   "trance": ["progressive trance", "uplifting trance"],
   "dubstep": ["brostep", "melodic dubstep", "riddim"],
+  "drum and bass": ["dnb", "jungle", "neurofunk", "liquid dnb"],
   "rock": [
     "alternative rock", "indie rock", "garage rock", "psychedelic rock",
     "stoner rock", "southern rock", "blues rock", "country rock",
@@ -39,6 +41,7 @@
     "tribal", "ethnic", "celtic", "manilla sound", "pinoy pop"
   ],
   "ambient": ["dark ambient", "drone", "ritual ambient", "chillout", "lofi", "downtempo"],
+  "lofi": ["lo-fi", "low fidelity"],
   "classical": [
     "baroque", "renaissance", "romantic era", "modern classical",
     "contemporary classical", "neoclassical", "orchestral", "symphonic"
@@ -46,5 +49,7 @@
   "ost": ["soundtrack", "anime", "game boy music", "nintendo", "sega", "playstation", "xbox"],
   "jazz": ["bebop", "free jazz", "fusion", "smooth jazz", "acid jazz", "gypsy jazz"],
   "disco": ["boogie", "italo disco", "nu disco"],
-  "post-rock": ["math rock", "emo", "post-hardcore", "screamo"]
+  "post-rock": ["math rock", "emo", "post-hardcore", "screamo"],
+  "synthwave": ["retrowave", "outrun"],
+  "grime": ["uk grime"]
 }
