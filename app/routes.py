@@ -317,9 +317,20 @@ def generate_drums():
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid 'bpm': must be number 1-300"}), 400
 
+        # Normalize client-provided genres before any identification/search
+        normalized_genres = [g for g in (genres or []) if isinstance(g, str) and g.strip()]
+        provided_genres = normalized_genres if normalized_genres else None
+        normalized_primary_genre = (
+            primary_genre
+            if primary_genre and primary_genre.strip().lower() != "unknown"
+            else None
+        )
+        # If client provided genre(s), do NOT auto-identify or search genres
+        use_auto_identify = bool(auto_identify_track) and (normalized_primary_genre is None) and (provided_genres is None)
+
         track_info = None
 
-        if auto_identify_track:
+        if use_auto_identify:
             print("[DrumGen] Auto-identifying track from audio...")
             _report_status(task_id, "Идентификация трека...")
             if progress_delay_seconds > 0:
@@ -331,14 +342,17 @@ def generate_drums():
                     print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
                 else:
                     print("[DrumGen] Auto-identification failed — using filename metadata for genre lookup")
+                # Only search genres when they are missing/unknown
                 if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
                     try:
                         _check_cancel(task_id)
-                        detected_genres = detect_genres(track_info['artist'], track_info['title'])
-                        if detected_genres:
-                            original = track_info.get('genres', [])[:]
-                            track_info['genres'] = list(set(original + detected_genres))
-                            if set(track_info['genres']) != set(original):
+                        existing_pg = str(track_info.get('primary_genre', '') or '').strip().lower()
+                        existing_genres = track_info.get('genres', []) or []
+                        if (existing_pg == "" or existing_pg == "unknown") and len(existing_genres) == 0:
+                            detected_genres = detect_genres(track_info['artist'], track_info['title'])
+                            if detected_genres:
+                                original = existing_genres[:]
+                                track_info['genres'] = list(set(original + detected_genres))
                                 print(f"[Spotify] Added genres: {detected_genres}")
                     except Exception as e:
                         print(f"[Spotify] Failed: {e}")
@@ -349,14 +363,6 @@ def generate_drums():
             print("[DrumGen] No track identification requested")
             track_info = None
         _check_cancel(task_id)
-
-        normalized_genres = [g for g in (genres or []) if isinstance(g, str) and g.strip()]
-        provided_genres = normalized_genres if normalized_genres else None
-        normalized_primary_genre = (
-            primary_genre
-            if primary_genre and primary_genre.strip().lower() != "unknown"
-            else None
-        )
 
         _report_status(task_id, "Определение жанров...")
         if progress_delay_seconds > 0:
@@ -406,15 +412,18 @@ def generate_drums():
 
         final_genres = provided_genres if provided_genres is not None else (track_info.get("genres") if track_info else [])
         final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else "")
+        genres_source = "server" if use_auto_identify else "client"
 
         response_data['track_info'] = {
             'title': (track_info.get('title') if track_info else 'Unknown'),
             'artist': (track_info.get('artist') if track_info else 'Unknown'),
             'genres': final_genres,
-            'primary_genre': final_primary
+            'primary_genre': final_primary,
+            'genres_source': genres_source
         }
         print(f"[DrumGen] Successfully generated {len(notes)} notes ({drum_mode})")
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
+        print(f"   - Источник жанров: {genres_source} | primary: {final_primary or 'не задан'}")
         _report_status(task_id, "Формирование ответа...")
         return jsonify(response_data)
 
