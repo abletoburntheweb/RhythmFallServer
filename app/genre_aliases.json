@@ -2,7 +2,7 @@
   "k-pop": ["kpop", "korean pop", "korean", "k-pop music"],
   "j-pop": ["jpop", "japanese pop", "j-rock", "visual kei", "anime rock"],
   "hip hop": ["hip-hop", "hiphop", "urban"],
-  "rap": ["trap", "cloud rap", "drill", "grime", "trap music"],
+  "rap": ["trap", "cloud rap", "drill", "grime", "trap music", "phonk"],
   "electronic": [
     "electronica", "idm", "electro", "glitch", "chiptune", "bitpop",
     "nintendocore", "video game music", "retro gaming", "synthwave",
@@ -19,9 +19,9 @@
   "rock": [
     "alternative rock", "indie rock", "garage rock", "psychedelic rock",
     "stoner rock", "southern rock", "blues rock", "country rock",
-    "art rock", "prog rock", "shoegaze", "dream pop"
+    "art rock", "prog rock", "shoegaze", "dream pop", "post-punk", "coldwave"
   ],
-  "punk": ["punk rock", "skate punk", "folk punk", "cowpunk"],
+  "punk": ["punk rock", "skate punk", "folk punk", "cowpunk", "pop punk"],
   "metal": [
     "heavy metal", "thrash metal", "death metal", "black metal",
     "doom metal", "power metal", "symphonic metal", "nu metal",
@@ -42,6 +42,13 @@
   ],
   "ambient": ["dark ambient", "drone", "ritual ambient", "chillout", "lofi", "downtempo"],
   "lofi": ["lo-fi", "low fidelity"],
+  "chillwave": ["glo-fi", "glofi", "hypnagogic pop", "chill wave"],
+  "vaporwave": ["vapourwave", "mallsoft"],
+  "witch house": ["witchhouse"],
+  "art pop": ["avant-pop", "experimental pop"],
+  "indie pop": ["indie-pop", "bedroom pop"],
+  "electropop": ["electro pop"],
+  "future funk": ["futurefunk"],
   "classical": [
     "baroque", "renaissance", "romantic era", "modern classical",
     "contemporary classical", "neoclassical", "orchestral", "symphonic"
