@@ -624,6 +624,32 @@
     "pattern_style": "groove"
   },
 
+  "hyperpop": {
+    "kick_sensitivity_multiplier": 1.2,
+    "snare_sensitivity_multiplier": 1.0,
+    "pattern_complexity": "high",
+    "kick_priority": true,
+    "sync_tolerance_multiplier": 0.9,
+    "drum_start_window": 2.5,
+    "drum_density_threshold": 0.6,
+    "max_hits_per_second": 6,
+    "min_note_distance": 0.04,
+    "pattern_style": "groove"
+  },
+
+  "j-pop": {
+    "kick_sensitivity_multiplier": 1.0,
+    "snare_sensitivity_multiplier": 1.1,
+    "pattern_complexity": "medium",
+    "kick_priority": false,
+    "sync_tolerance_multiplier": 1.1,
+    "drum_start_window": 4.0,
+    "drum_density_threshold": 0.45,
+    "max_hits_per_second": 4,
+    "min_note_distance": 0.06,
+    "pattern_style": "precise"
+  },
+
   "idm": {
     "kick_sensitivity_multiplier": 1.4,
     "snare_sensitivity_multiplier": 1.0,

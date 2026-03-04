@@ -232,17 +232,12 @@ _GENRE_ALIAS_MAP = load_genre_aliases()
 
 
 def get_genre_config(genre_name: str) -> dict:
-
-    if not genre_name or not isinstance(genre_name, str):
-        genre_name = "groove"
-
-    if genre_name in _GENRE_CONFIGS:
-        return _GENRE_CONFIGS[genre_name]
-
-    for canonical, aliases in _GENRE_ALIAS_MAP.items():
-        if genre_name.lower() in [a.lower() for a in aliases]:
-            return _GENRE_CONFIGS.get(canonical, _GENRE_CONFIGS["groove"])
-
+    key = genre_name.strip().lower() if isinstance(genre_name, str) else "groove"
+    if key in _GENRE_CONFIGS:
+        return _GENRE_CONFIGS[key]
+    if key in _GENRE_ALIAS_MAP:
+        canonical = _GENRE_ALIAS_MAP[key]
+        return _GENRE_CONFIGS.get(canonical, _GENRE_CONFIGS.get("groove", {}))
     print(f"[GenreDetector] Жанр '{genre_name}' не найден, используем 'groove'")
     return _GENRE_CONFIGS.get("groove", {
         "pattern_style": "groove",

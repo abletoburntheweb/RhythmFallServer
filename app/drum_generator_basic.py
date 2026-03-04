@@ -41,11 +41,15 @@ def generate_drums_notes(
 
     unique_genres = []
     primary_genre = None
+    primary_override = None
     dominant_onsets: List[float] = []
+
+    if isinstance(provided_primary_genre, str) and provided_primary_genre.strip():
+        primary_override = provided_primary_genre.strip().lower()
 
     if provided_genres is not None:
         unique_genres = [g for g in provided_genres if isinstance(g, str) and g.strip()]
-        primary_genre = provided_primary_genre or (unique_genres[0] if unique_genres else None)
+        primary_genre = (primary_override or provided_primary_genre) or (unique_genres[0] if unique_genres else None)
         print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
         print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
     else:
@@ -74,6 +78,8 @@ def generate_drums_notes(
         unique_genres = analysis["genres"]
         track_info = analysis["track_info"]
         primary_genre = track_info.get("primary_genre") if track_info else None
+        if primary_override:
+            primary_genre = primary_override
 
     from .genre_detector import get_genre_config
     if primary_genre:
