@@ -365,7 +365,17 @@ def generate_drums():
         if progress_delay_seconds > 0:
             time.sleep(progress_delay_seconds)
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
-        print(f"[DrumGen] Жанр для генерации: {normalized_primary_genre or (track_info.get('primary_genre') if track_info else 'groove')}")
+        effective_primary = normalized_primary_genre
+        if effective_primary is None and track_info:
+            pg_val = str(track_info.get('primary_genre', '') or '').strip()
+            if pg_val != "":
+                effective_primary = pg_val
+            else:
+                genres_list = [g for g in (track_info.get('genres') or []) if isinstance(g, str) and g.strip()]
+                if genres_list:
+                    track_info['primary_genre'] = genres_list[0]
+                    effective_primary = genres_list[0]
+        print(f"[DrumGen] Жанр для генерации: {effective_primary or 'groove'}")
         _report_status(task_id, "Разделение на стемы...")
         _check_cancel(task_id)
         notes = generator.generate_drums_notes(
@@ -379,7 +389,7 @@ def generate_drums():
             auto_identify_track=False,
             use_filename_for_genres=False,
             provided_genres=provided_genres,
-            provided_primary_genre=normalized_primary_genre,
+            provided_primary_genre=effective_primary,
             status_cb=lambda s: _report_status(task_id, s),
             cancel_cb=lambda: _check_cancel(task_id)
         )
@@ -408,7 +418,7 @@ def generate_drums():
         }
 
         final_genres = provided_genres if provided_genres is not None else (track_info.get("genres") if track_info else [])
-        final_primary = normalized_primary_genre or (track_info.get("primary_genre") if track_info else "")
+        final_primary = effective_primary or (track_info.get("primary_genre") if track_info else "")
         genres_source = "server" if use_auto_identify else "client"
 
         response_data['track_info'] = {
