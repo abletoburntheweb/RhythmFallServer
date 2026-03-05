@@ -2,7 +2,7 @@
   "k-pop": ["kpop", "korean pop", "korean", "k-pop music"],
   "j-pop": ["jpop", "japanese pop", "j-rock", "visual kei", "anime rock"],
   "hip hop": ["hip-hop", "hiphop", "urban"],
-  "rap": ["trap", "cloud rap", "drill", "grime", "trap music", "phonk"],
+  "rap": ["trap", "cloud rap", "drill", "grime", "trap music", "phonk", "jerk", "flint", "detroit", "detroit rap", "emo rap"],
   "electronic": [
     "electronica", "idm", "electro", "glitch", "chiptune", "bitpop",
     "nintendocore", "video game music", "retro gaming", "synthwave",
@@ -49,6 +49,8 @@
   "indie pop": ["indie-pop", "bedroom pop"],
   "electropop": ["electro pop"],
   "future funk": ["futurefunk"],
+  "pop": ["dance pop", "teen pop"],
+  "hyperpop": ["hyper pop", "pc music", "bubblegum bass"],
   "classical": [
     "baroque", "renaissance", "romantic era", "modern classical",
     "contemporary classical", "neoclassical", "orchestral", "symphonic"
