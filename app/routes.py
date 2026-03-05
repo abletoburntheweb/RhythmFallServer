@@ -274,6 +274,7 @@ def generate_drums():
         progress_delay_seconds = float(metadata.get("progress_delay_seconds", 0.0))
         genres = metadata.get("genres")
         primary_genre = metadata.get("primary_genre")
+        use_stems = bool(metadata.get("use_stems", True))
 
         if not isinstance(lanes, int) or not (1 <= lanes <= 8):
             return jsonify({"error": "Invalid 'lanes': must be integer 1-8"}), 400
@@ -365,6 +366,7 @@ def generate_drums():
         if progress_delay_seconds > 0:
             time.sleep(progress_delay_seconds)
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
+        print(f"[DrumGen] Use stems: {'yes' if use_stems else 'no'}")
         effective_primary = normalized_primary_genre
         if effective_primary is None and track_info:
             pg_val = str(track_info.get('primary_genre', '') or '').strip()
@@ -384,7 +386,7 @@ def generate_drums():
             lanes=lanes,
             sync_tolerance=sync_tolerance,
             use_madmom_beats=True,
-            use_stems=True,
+            use_stems=use_stems,
             track_info=track_info,
             auto_identify_track=False,
             use_filename_for_genres=False,
