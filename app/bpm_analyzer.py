@@ -94,62 +94,107 @@ def calculate_bpm(file_path, save_cache=True):
 
         tempos = []
 
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-
-        configs = [
-            (512, 4.0),
-            (1024, 2.0),
-            (256, 8.0),
-            (512, 2.0),
-            (1024, 4.0),
-        ]
-
-        for hop_length, ac_size in configs:
-            try:
-                tempo = librosa.beat.tempo(
-                    y=y,
-                    sr=sr,
-                    hop_length=hop_length,
-                    ac_size=ac_size,
-                    max_tempo=300.0,
-                    offset=0.0
-                )
-                tempos.extend([tempo[0]] * 2)
-            except Exception as e:
-                print(f"[WARNING] Tempo calculation failed for config {hop_length}, {ac_size}: {e}")
-                continue
+        hop_opts = [256, 512, 1024]
+        ac_sizes = [2.0, 4.0, 8.0]
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=512)
+        for h in hop_opts:
+            for a in ac_sizes:
+                try:
+                    t = librosa.beat.tempo(y=y, sr=sr, hop_length=h, ac_size=a, max_tempo=300.0, offset=0.0)
+                    tempos.extend([float(t[0])])
+                except Exception as e:
+                    pass
+        try:
+            from scipy.signal import find_peaks
+            hop = 512
+            onset_env_h = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+            acf = np.correlate(onset_env_h, onset_env_h, mode='full')[len(onset_env_h)-1:]
+            lag_min = max(1, int((sr / hop) * (60.0 / 250.0)))
+            lag_max = int((sr / hop) * (60.0 / 40.0))
+            roi = acf[lag_min:lag_max] if lag_max > lag_min else acf
+            pk, _ = find_peaks(roi, distance=max(1, int((sr / hop) * (60.0 / 300.0))))
+            lags = (pk + lag_min) if lag_max > lag_min else pk
+            bpms_acf = 60.0 / (lags * hop / sr + 1e-9)
+            tempos.extend([float(v) for v in bpms_acf if 40.0 <= v <= 250.0])
+        except Exception:
+            pass
 
         try:
-            tempo_alt, _ = librosa.beat.beat_track(y=y, sr=sr, hop_length=512)
-            tempos.append(tempo_alt)
+            t_bt, _ = librosa.beat.beat_track(y=y, sr=sr, hop_length=512)
+            tempos.append(float(t_bt))
         except Exception as e:
-            print(f"[WARNING] beat_track failed: {e}")
+            pass
 
         try:
-            tempo_ac = librosa.feature.tempo(
-                y=y,
-                sr=sr,
-                hop_length=512,
-                win_length=384
-            )
-            if tempo_ac is not None and len(tempo_ac) > 0:
-                tempos.extend(tempo_ac.flatten())
+            t_feat = librosa.feature.tempo(y=y, sr=sr, hop_length=512, win_length=384)
+            if t_feat is not None and len(t_feat) > 0:
+                tempos.extend([float(v) for v in t_feat.flatten()])
         except Exception as e:
-            print(f"[WARNING] feature.tempo failed: {e}")
+            pass
 
-        valid_tempos = [t for t in tempos if 40 <= t <= 250]
-
-        if not valid_tempos:
+        y_perc = librosa.effects.hpss(y, margin=(1.0, 5.0))[1]
+        onset_env_p = librosa.onset.onset_strength(y=y_perc, sr=sr)
+        peaks = librosa.util.peak_pick(onset_env_p, pre_max=3, post_max=3, pre_avg=10, post_avg=10, delta=onset_env_p.max() * 0.1, wait=2)
+        onset_times = librosa.times_like(onset_env_p, sr=sr)[peaks] if len(peaks) > 0 else librosa.times_like(onset_env_p, sr=sr)
+        onset_times = onset_times if isinstance(onset_times, np.ndarray) else np.array(onset_times)
+        onset_times = onset_times[(onset_times >= 0.0) & (onset_times <= (len(y) / sr))]
+        onset_times = onset_times.tolist()
+        def _grid_score(times, bpm):
+            if bpm <= 0:
+                return -1e9
+            p = 60.0 / float(bpm)
+            if len(times) == 0:
+                return -1e9
+            tt = np.array(times, dtype=np.float32)
+            duration = float(len(y)) / float(sr)
+            grid = np.arange(0.0, duration + p, p, dtype=np.float32)
+            tol = max(0.02, 0.07 * p)
+            dists = np.min(np.abs(tt[:, None] - grid[None, :]), axis=1)
+            hits = float(np.sum(dists <= tol))
+            return hits / max(1.0, float(len(tt)))
+        def _penalty(bpm):
+            if bpm < 60 or bpm > 220:
+                return 0.92
+            if 80 <= bpm <= 190:
+                return 1.0
+            return 0.97
+        candidates = [t for t in tempos if 40 <= t <= 250]
+        cand_set = set(int(round(c)) for c in candidates)
+        cand_list = sorted(cand_set)
+        scaled = []
+        for c in cand_list:
+            for s in [0.5, 2.0, 1.0, 1.5, (2.0/3.0)]:
+                v = int(round(c * s))
+                if 40 <= v <= 250:
+                    scaled.append(v)
+        scaled = sorted(set(scaled))
+        if not scaled:
             bpm = 120
         else:
-            bpm = np.median(valid_tempos)
-
-            if bpm < 60:
-                bpm *= 2
-            elif bpm > 180:
-                bpm /= 2
-
-            bpm = int(round(bpm))
+            scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in scaled]
+            scores.sort(key=lambda x: x[1], reverse=True)
+            best_bpm, best_score = int(scores[0][0]), scores[0][1]
+            raw_ints = [int(round(t)) for t in candidates if 40 <= t <= 250]
+            try:
+                from collections import Counter
+                cluster = Counter(raw_ints)
+                cluster_sorted = sorted(cluster.items(), key=lambda x: x[1], reverse=True)
+                cluster_pick = cluster_sorted[0][0] if cluster_sorted else None
+            except Exception:
+                cluster_pick = None
+            if cluster_pick is not None:
+                fam = [cluster_pick]
+                for s in [0.5, 2.0, 1.5, (2.0/3.0)]:
+                    vv = int(round(cluster_pick * s))
+                    if 40 <= vv <= 250:
+                        fam.append(vv)
+                fam = sorted(set(fam))
+                fam_scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in fam]
+                fam_scores.sort(key=lambda x: x[1], reverse=True)
+                cf_bpm, cf_score = int(fam_scores[0][0]), fam_scores[0][1]
+                bpm = int(cf_bpm if cf_score >= best_score * 0.97 else best_bpm)
+            else:
+                bpm = int(best_bpm)
 
         try:
             spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))
@@ -160,6 +205,15 @@ def calculate_bpm(file_path, save_cache=True):
             if zero_crossing_rate > 0.1:
                 if 160 <= bpm <= 220:
                     bpm = int(bpm / 2)
+            family = [bpm]
+            for s in [0.5, 2.0, 1.5, (2.0/3.0)]:
+                vv = int(round(bpm * s))
+                if 40 <= vv <= 250:
+                    family.append(vv)
+            family = sorted(set(family))
+            fam_scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in family]
+            fam_scores.sort(key=lambda x: x[1], reverse=True)
+            bpm = int(fam_scores[0][0])
 
         bpm = max(40, min(250, bpm))
 
