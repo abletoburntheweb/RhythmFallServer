@@ -189,40 +189,46 @@ class MultiSourceGenreDetector:
             'by_source': results
         }
 
-
-def load_music_genres() -> List[str]:
-    try:
-        config_path = Path(__file__).parent / "music_genres.json"
-        with open(config_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data.get('music_genres', [])
-    except FileNotFoundError:
-        print(f"[GenreDetector] Файл music_genres.json не найден")
-        return []
-    except Exception as e:
-        print(f"[GenreDetector] Ошибка загрузки жанров из JSON: {e}")
-        return []
-
-
 def detect_genres(artist: str, title: str) -> List[str]:
-    music_genres = load_music_genres()
-
     detector = MultiSourceGenreDetector()
     results = detector.detect_all_genres(artist, title)
 
-    filtered_genres = []
-    for genre in results['all_genres']:
-        if genre.lower() in music_genres:
-            filtered_genres.append(genre.lower())
+    allowed_aliases = set(_GENRE_ALIAS_MAP.keys()) if isinstance(_GENRE_ALIAS_MAP, dict) else set()
+    canonical_keys = set(_GENRE_CONFIGS.keys()) if isinstance(_GENRE_CONFIGS, dict) else set()
+    allowed = allowed_aliases | canonical_keys
 
-    if not filtered_genres:
-        if results['by_source']['musicbrainz']:
-            return results['by_source']['musicbrainz'][:3]
-        for source in ['lastfm']:
-            if results['by_source'][source]:
-                return results['by_source'][source][:3]
+    mapped: List[str] = []
+    seen = set()
+    for raw in results.get('all_genres', []):
+        key = str(raw).strip().lower()
+        if key in _GENRE_ALIAS_MAP:
+            canonical = _GENRE_ALIAS_MAP[key]
+            if canonical in canonical_keys and canonical not in seen:
+                mapped.append(canonical)
+                seen.add(canonical)
+        elif key in canonical_keys and key not in seen:
+            mapped.append(key)
+            seen.add(key)
 
-    return filtered_genres[:5]
+    if not mapped:
+        ordered_sources = ['musicbrainz', 'lastfm']
+        for src in ordered_sources:
+            for raw in results.get('by_source', {}).get(src, []):
+                key = str(raw).strip().lower()
+                if key in _GENRE_ALIAS_MAP:
+                    canonical = _GENRE_ALIAS_MAP[key]
+                    if canonical in canonical_keys and canonical not in seen:
+                        mapped.append(canonical)
+                        seen.add(canonical)
+                elif key in canonical_keys and key not in seen:
+                    mapped.append(key)
+                    seen.add(key)
+                if len(mapped) >= 5:
+                    break
+            if mapped:
+                break
+
+    return mapped[:5]
 
 
 from .drum_utils import load_genre_configs, load_genre_aliases, get_genre_params

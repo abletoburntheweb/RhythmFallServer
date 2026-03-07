@@ -2,9 +2,9 @@
   "k-pop": ["kpop", "korean pop", "korean", "k-pop music"],
   "j-pop": ["jpop", "japanese pop", "j-rock", "visual kei", "anime rock"],
   "hip hop": ["hip-hop", "hiphop", "urban"],
-  "rap": ["trap", "cloud rap", "drill", "grime", "trap music", "phonk", "jerk", "flint", "detroit", "detroit rap", "emo rap"],
+  "rap": ["trap", "cloud rap", "drill", "grime", "uk grime", "trap music", "phonk", "jerk", "flint", "detroit", "detroit rap", "emo rap"],
   "electronic": [
-    "electronica", "idm", "electro", "glitch", "chiptune", "bitpop",
+    "electronica", "electro", "glitch", "chiptune", "bitpop",
     "nintendocore", "video game music", "retro gaming", "synthwave",
     "edm", "electronic dance music", "dance", "indietronica"
   ],
@@ -25,7 +25,7 @@
   "metal": [
     "heavy metal", "thrash metal", "death metal", "black metal",
     "doom metal", "power metal", "symphonic metal", "nu metal",
-    "metalcore", "deathcore", "groove metal", "sludge metal",
+    "metalcore", "deathcore", "hardcore", "groove metal", "sludge metal",
     "stoner metal", "folk metal", "christian metal"
   ],
   "r&b": ["rnb", "contemporary r&b", "neo soul", "motown", "quiet storm"],
@@ -40,7 +40,7 @@
     "arabic", "persian", "turkish", "greek", "balkan", "klezmer",
     "tribal", "ethnic", "celtic", "manilla sound", "pinoy pop"
   ],
-  "ambient": ["dark ambient", "drone", "ritual ambient", "chillout", "lofi", "downtempo"],
+  "ambient": ["dark ambient", "drone", "ritual ambient", "chillout", "downtempo"],
   "lofi": ["lo-fi", "low fidelity"],
   "chillwave": ["glo-fi", "glofi", "hypnagogic pop", "chill wave"],
   "vaporwave": ["vapourwave", "mallsoft"],
@@ -59,6 +59,5 @@
   "jazz": ["bebop", "free jazz", "fusion", "smooth jazz", "acid jazz", "gypsy jazz"],
   "disco": ["boogie", "italo disco", "nu disco"],
   "post-rock": ["math rock", "emo", "post-hardcore", "screamo"],
-  "synthwave": ["retrowave", "outrun"],
-  "grime": ["uk grime"]
+  "synthwave": ["retrowave", "outrun"]
 }
