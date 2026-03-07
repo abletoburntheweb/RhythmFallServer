@@ -215,7 +215,15 @@ def calculate_bpm(file_path, save_cache=True):
             fam_scores.sort(key=lambda x: x[1], reverse=True)
             bpm = int(fam_scores[0][0])
 
-        bpm = max(40, min(250, bpm))
+        if bpm < 90:
+            while bpm < 90:
+                bpm *= 2
+            bpm = int(round(bpm))
+        elif bpm > 200:
+            while bpm > 200:
+                bpm /= 2.0
+            bpm = int(round(bpm))
+        bpm = max(90, min(200, bpm))
 
         if save_cache:
             save_bpm_to_cache(file_path, bpm)
