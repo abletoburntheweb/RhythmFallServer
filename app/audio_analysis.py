@@ -108,182 +108,108 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
         return str(song_path)
 
     def _try_separate(select_model: Optional[str] = None) -> Optional[str]:
-        prev_cwd = os.getcwd()
         try:
-            os.chdir(str(splitter_folder))
             model_dir = str(LOCAL_MODELS_DIR) if LOCAL_MODELS_DIR.exists() else "/tmp/audio-separator-models/"
             if cancel_cb:
                 cancel_cb()
+            print(f"[AudioAnalysis] Запуск разделения: {song_path.name} → {splitter_folder}")
+            print(f"[AudioAnalysis] Output dir: {splitter_folder.resolve()}")
+            print(f"[AudioAnalysis] Model dir: {model_dir}")
             separator = Separator(
-                output_dir=str(splitter_folder),
+                output_dir=str(splitter_folder.resolve()),
                 output_format="WAV",
                 model_file_dir=model_dir
             )
-            try:
-                if stem_type == "drums":
-                    local_drums = (LOCAL_MODELS_DIR / "kuielab_a_drums.onnx") if LOCAL_MODELS_DIR.exists() else None
-                    if local_drums and local_drums.exists():
-                        if cancel_cb:
-                            cancel_cb()
-                        separator.load_model(str(local_drums))
-                        if cancel_cb:
-                            cancel_cb()
-                        output_files = separator.separate(str(song_path))
-                        norm_files = []
-                        for f in output_files:
-                            if cancel_cb:
-                                cancel_cb()
-                            p = Path(f)
-                            if not p.is_absolute():
-                                p = splitter_folder / p
-                            norm_files.append(str(p))
-                        def is_target(name: str) -> bool:
-                            n = name.lower()
-                            return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
-                        candidates = [f for f in norm_files if is_target(f)]
-                        preferred_out = None
-                        for f in candidates:
-                            if cancel_cb:
-                                cancel_cb()
-                            lf = f.lower()
-                            if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
-                                continue
-                            preferred_out = f
-                            break
-                        if not preferred_out and candidates:
-                            preferred_out = candidates[0]
-                        if preferred_out and Path(preferred_out).exists():
-                            if cancel_cb:
-                                cancel_cb()
-                            shutil.copy2(preferred_out, output_path)
-                            for f in norm_files:
-                                try:
-                                    if Path(f).exists() and Path(f) != output_path:
-                                        Path(f).unlink(missing_ok=True)
-                                except Exception:
-                                    pass
-                            for aux in ["mdx_model_data.json", "vr_model_data.json", "download_checks.json"]:
-                                try:
-                                    p = splitter_folder / aux
-                                    if p.exists():
-                                        p.unlink(missing_ok=True)
-                                except Exception:
-                                    pass
-                            return str(output_path)
-            except Exception:
-                pass
             available_models = []
             try:
                 available_models = separator.get_simplified_model_list()
             except Exception:
-                pass
+                available_models = []
+            if available_models:
+                print(f"[AudioAnalysis] Доступные модели: {len(available_models)}")
+                for m in available_models:
+                    ml = m.lower()
+                    if "kuielab" in ml:
+                        print(f"[AudioAnalysis]   * {m}")
             target_model = None
-            if select_model:
-                for m in available_models:
-                    if select_model.lower() in m.lower():
-                        if stem_type == "drums" and "vocal" in m.lower():
-                            continue
-                        target_model = m
-                        break
+            for m in available_models:
+                if m.lower() == "kuielab_a_drums":
+                    target_model = m
+                    break
             if not target_model:
                 for m in available_models:
                     ml = m.lower()
-                    if 'kuielab_a_drums' in ml:
+                    if "kuielab" in ml and "drum" in ml:
                         target_model = m
                         break
             if not target_model:
                 for m in available_models:
-                    ml = m.lower()
-                    if 'kuielab' in ml and 'drum' in ml:
+                    if "kuielab" in m.lower():
                         target_model = m
                         break
+            if not target_model and available_models:
+                target_model = available_models[0]
+                print(f"[AudioAnalysis] Временный выбор модели (нет kuielab): {target_model}")
             if not target_model:
-                for m in available_models:
-                    ml = m.lower()
-                    if stem_type == "drums" and "vocal" in ml:
-                        continue
-                    if 'kuielab' in ml:
-                        target_model = m
-                        break
-            if not target_model and stem_type == "drums":
-                try:
-                    if cancel_cb:
-                        cancel_cb()
-                    separator.load_model("MDX23C-DrumSep-aufr33-jarredou.ckpt")
-                    if cancel_cb:
-                        cancel_cb()
-                    output_files = separator.separate(str(song_path))
-                    norm_files = []
-                    for f in output_files:
-                        if cancel_cb:
-                            cancel_cb()
-                        p = Path(f)
-                        if not p.is_absolute():
-                            p = splitter_folder / p
-                        norm_files.append(str(p))
-                    def is_target(name: str) -> bool:
-                        n = name.lower()
-                        return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
-                    candidates = [f for f in norm_files if is_target(f)]
-                    preferred_out = None
-                    for f in candidates:
-                        if cancel_cb:
-                            cancel_cb()
-                        lf = f.lower()
-                        if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
-                            continue
-                        preferred_out = f
-                        break
-                    if not preferred_out and candidates:
-                        preferred_out = candidates[0]
-                    if preferred_out and Path(preferred_out).exists():
-                        if cancel_cb:
-                            cancel_cb()
-                        shutil.copy2(Path(preferred_out), output_path)
-                        for f in norm_files:
-                            try:
-                                if Path(f).exists() and Path(f) != output_path:
-                                    Path(f).unlink(missing_ok=True)
-                            except Exception:
-                                pass
-                        for aux in ["mdx_model_data.json", "vr_model_data.json", "download_checks.json"]:
-                            try:
-                                p = splitter_folder / aux
-                                if p.exists():
-                                    p.unlink(missing_ok=True)
-                            except Exception:
-                                pass
-                        return str(output_path)
-                except Exception:
-                    pass
-            if not target_model:
+                print("[AudioAnalysis] Нет доступных моделей в separator — пропускаем разделение")
                 return None
             if cancel_cb:
                 cancel_cb()
-            separator.load_model(target_model)
+            print(f"[AudioAnalysis] Загрузка модели (алиас): {target_model}")
+            try:
+                separator.load_model(target_model)
+                print("[AudioAnalysis] Модель загружена")
+            except Exception as e:
+                print(f"[AudioAnalysis] Ошибка загрузки модели: {e}")
+                return None
             if cancel_cb:
                 cancel_cb()
-            output_files = separator.separate(str(song_path))
-            norm_files = []
+            print("[AudioAnalysis] separator.separate старт")
+            try:
+                output_files = separator.separate(str(song_path))
+                print("[AudioAnalysis] separator.separate завершён")
+            except Exception as e:
+                print(f"[AudioAnalysis] Ошибка separator.separate: {e}")
+                output_files = []
+            if cancel_cb:
+                cancel_cb()
+            print(f"[AudioAnalysis] Separator вернул путей: {len(output_files)}")
+            norm_files_set = []
             for f in output_files:
-                if cancel_cb:
-                    cancel_cb()
-                p = Path(f)
-                if not p.is_absolute():
-                    p = splitter_folder / p
-                norm_files.append(str(p))
+                try:
+                    p = Path(f)
+                    chosen: Optional[Path] = None
+                    if p.is_absolute() and p.exists():
+                        chosen = p
+                    else:
+                        c1 = (splitter_folder / p).resolve()
+                        if c1.exists():
+                            chosen = c1
+                        else:
+                            c2 = (PROJECT_ROOT / p).resolve()
+                            if c2.exists():
+                                chosen = c2
+                    if chosen and chosen.suffix.lower() == ".wav":
+                        norm_files_set.append(str(chosen))
+                        print(f"[AudioAnalysis]   map: {f} -> {chosen} (ok)")
+                    else:
+                        print(f"[AudioAnalysis]   skip: {f} (not found or not wav)")
+                except Exception:
+                    print(f"[AudioAnalysis]   err: {f}")
+                    continue
+            if not norm_files_set:
+                produced = [str(p.resolve()) for p in splitter_folder.rglob("*.wav")]
+                print(f"[AudioAnalysis] Найдено файлов после сепарации (рекурсивно): {len(produced)}")
+                for x in produced:
+                    print(f"[AudioAnalysis]   - {Path(x).name}")
+                norm_files_set = produced
+            norm_files = norm_files_set
             def is_target(name: str) -> bool:
                 n = name.lower()
-                if stem_type == "drums":
-                    return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
-                if stem_type == "vocals":
-                    return "vocal" in n and "no_vocals" not in n
-                if stem_type == "bass":
-                    return "bass" in n
-                return stem_type in n
-            targets = [f for f in norm_files if is_target(f)]
+                return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+            candidates = [f for f in norm_files if is_target(f)]
             preferred_out = None
-            for f in targets:
+            for f in candidates:
                 if cancel_cb:
                     cancel_cb()
                 lf = f.lower()
@@ -291,15 +217,24 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                     continue
                 preferred_out = f
                 break
-            if not preferred_out and targets:
-                preferred_out = targets[0]
+            if not preferred_out and candidates:
+                preferred_out = candidates[0]
+            if not preferred_out and norm_files:
+                preferred_out = norm_files[0]
+                print(f"[AudioAnalysis] Подходящий drum-стем не найден по имени, берём первый файл: {Path(preferred_out).name}")
             if preferred_out and Path(preferred_out).exists():
                 if cancel_cb:
                     cancel_cb()
-                shutil.copy2(Path(preferred_out), output_path)
+                print(f"[AudioAnalysis] Выбран stem: {Path(preferred_out).name} → {output_path.name}")
+                shutil.copy2(preferred_out, output_path)
+                try:
+                    if Path(output_path).exists():
+                        print(f"[AudioAnalysis] Stem сохранён: {output_path.name}")
+                except Exception:
+                    pass
                 for f in norm_files:
                     try:
-                        if Path(f).exists() and Path(f) != output_path:
+                        if Path(f).exists() and Path(f) != output_path and Path(f) != Path(preferred_out):
                             Path(f).unlink(missing_ok=True)
                     except Exception:
                         pass
@@ -311,14 +246,13 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                     except Exception:
                         pass
                 return str(output_path)
+            else:
+                print("[AudioAnalysis] Не найден подходящий drum/percussion stem — используем оригинал")
             return None
         except Exception:
             return None
         finally:
-            try:
-                os.chdir(prev_cwd)
-            except Exception:
-                pass
+            pass
 
     if cancel_cb:
         cancel_cb()
