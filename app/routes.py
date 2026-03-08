@@ -9,7 +9,6 @@ import shutil
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator_basic
 from . import drum_generator_enhanced
-from .track_detector import identify_track
 
 try:
     from .genre_detector import detect_genres
@@ -28,6 +27,13 @@ os.makedirs("songs", exist_ok=True)
 TASK_PROGRESS = {}
 TASK_CANCELLED = set()
 TASK_CONTEXT = {}
+
+def _extract_artist_title_from_filename(filename: str) -> tuple[str, str]:
+    stem = Path(filename).stem
+    parts = stem.split(' - ', 1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return "Unknown", stem
 
 def _report_status(task_id: str, status_text: str):
     if not task_id:
@@ -114,7 +120,6 @@ def home():
         "endpoints": {
             "analyze_bpm": "POST /analyze_bpm - Analyze BPM from audio",
             "generate_drums": "POST /generate_drums - Generate drum notes",
-            "identify_track": "POST /identify_track - Identify track by audio",
             "list_songs": "GET /songs - List available songs",
             "health": "GET /health - Health check"
         }
@@ -168,67 +173,6 @@ def analyze_bpm():
 
     except Exception as e:
         print(f"[EXCEPTION] {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-                print(f"[CLEANUP] Temporary file removed: {temp_path}")
-            except Exception as e:
-                print(f"[WARNING] Failed to remove temp file: {e}")
-
-
-@bp.route("/identify_track", methods=["POST"])
-def identify_track_endpoint():
-    print("DEBUG: /identify_track request received")
-    print(f"DEBUG: Content-Type: {request.content_type}")
-    print(f"DEBUG: Headers: {dict(request.headers)}")
-
-    temp_path = None
-    try:
-        audio_data = request.get_data()
-        if not audio_data:
-            return jsonify({"error": "No audio data received"}), 400
-
-        filename = request.headers.get("X-Filename", "uploaded_audio.mp3")
-
-        safe_filename = "".join(c for c in filename if c.isalnum() or c in "._- ").rstrip()
-        if not safe_filename:
-            safe_filename = f"track_{int(time.time())}.mp3"
-
-        temp_path = os.path.join("temp_uploads", safe_filename)
-        with open(temp_path, "wb") as f:
-            f.write(audio_data)
-
-        print(f"[TrackDetector] Processing {temp_path}")
-
-        track_info = identify_track(temp_path)
-
-        if not track_info.get('success'):
-            print("[TrackDetector] Track identification failed")
-            return jsonify({
-                "error": "Could not identify track from audio",
-                "status": "not_found"
-            }), 404
-
-        print(f"[TrackDetector] Successfully identified: {track_info['artist']} - {track_info['title']}")
-
-        if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
-            spotify_genres = detect_genres(track_info['artist'], track_info['title'])
-            if spotify_genres:
-                track_info['genres'].extend(spotify_genres)
-                track_info['genres'] = list(set(track_info['genres']))
-                print(f"[Spotify] Добавлены жанры: {spotify_genres}")
-
-        return jsonify({
-            "track_info": track_info,
-            "status": "success"
-        })
-
-    except Exception as e:
-        print(f"[TrackDetector] Exception in identify_track: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -325,41 +269,19 @@ def generate_drums():
             if primary_genre and primary_genre.strip().lower() != "unknown"
             else None
         )
-        use_auto_identify = bool(auto_identify_track) and (normalized_primary_genre is None) and (provided_genres is None)
+        use_auto_identify = False
 
         track_info = None
-
-        if use_auto_identify:
-            print("[DrumGen] Auto-identifying track from audio...")
-            _report_status(task_id, "Идентификация трека...")
-            if progress_delay_seconds > 0:
-                time.sleep(progress_delay_seconds)
-            _check_cancel(task_id)
-            track_info = identify_track(temp_path)
-            if track_info:
-                if track_info.get('success'):
-                    print(f"[DrumGen] Identified: {track_info['artist']} - {track_info['title']}")
-                else:
-                    print("[DrumGen] Auto-identification failed — using filename metadata for genre lookup")
-                if GENRE_DETECTION_AVAILABLE and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
-                    try:
-                        _check_cancel(task_id)
-                        existing_pg = str(track_info.get('primary_genre', '') or '').strip().lower()
-                        existing_genres = track_info.get('genres', []) or []
-                        if (existing_pg == "" or existing_pg == "unknown") and len(existing_genres) == 0:
-                            detected_genres = detect_genres(track_info['artist'], track_info['title'])
-                            if detected_genres:
-                                original = existing_genres[:]
-                                track_info['genres'] = list(set(original + detected_genres))
-                                print(f"[Spotify] Added genres: {detected_genres}")
-                    except Exception as e:
-                        print(f"[Spotify] Failed: {e}")
-            else:
-                print("[DrumGen] Auto-identification failed — proceeding without track info")
-                track_info = None
-        else:
-            print("[DrumGen] No track identification requested")
-            track_info = None
+        print("[DrumGen] Используем только аудио-модель жанров (без сетевых источников)")
+        # Минимальный track_info из имени файла для UI/логов
+        artist_guess, title_guess = _extract_artist_title_from_filename(original_filename)
+        track_info = {
+            "artist": artist_guess or "Unknown",
+            "title": title_guess or "Unknown",
+            "genres": [],
+            "primary_genre": "",
+            "success": False
+        }
         _check_cancel(task_id)
 
         _report_status(task_id, "Определение жанров...")
@@ -368,15 +290,15 @@ def generate_drums():
         print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
         print(f"[DrumGen] Use stems: {'yes' if use_stems else 'no'}")
         effective_primary = normalized_primary_genre
-        if effective_primary is None and track_info:
-            pg_val = str(track_info.get('primary_genre', '') or '').strip()
-            if pg_val != "":
-                effective_primary = pg_val
-            else:
-                genres_list = [g for g in (track_info.get('genres') or []) if isinstance(g, str) and g.strip()]
-                if genres_list:
-                    track_info['primary_genre'] = genres_list[0]
-                    effective_primary = genres_list[0]
+        if effective_primary is None and provided_genres is None and GENRE_DETECTION_AVAILABLE:
+            try:
+                detected = detect_genres("Unknown", "Unknown", audio_path=temp_path) or []
+                track_info['genres'] = detected
+                if detected:
+                    effective_primary = detected[0]
+                print(f"[DrumGen] Audio genres: {detected}")
+            except Exception as e:
+                print(f"[DrumGen] Genre detection failed: {e}")
         print(f"[DrumGen] Жанр для генерации: {effective_primary or 'groove'}")
         _report_status(task_id, "Разделение на стемы...")
         _check_cancel(task_id)
@@ -460,6 +382,79 @@ def generate_drums():
                     print(f"[WARNING] Failed to remove temp file: {e}")
 
 
+@bp.route("/debug_genres_audio", methods=["POST"])
+def debug_genres_audio():
+    temp_path = None
+    try:
+        if "audio_file" in request.files:
+            file = request.files["audio_file"]
+            if file.filename == "":
+                return jsonify({"error": "No file selected"}), 400
+            safe_filename = "".join(c for c in file.filename if c.isalnum() or c in "._- ").rstrip()
+            temp_path = os.path.join("temp_uploads", f"genres_{int(time.time())}_{safe_filename}")
+            file.save(temp_path)
+        elif request.data:
+            temp_path = os.path.join("temp_uploads", f"genres_{int(time.time())}_uploaded_audio.mp3")
+            with open(temp_path, "wb") as f:
+                f.write(request.data)
+        else:
+            return jsonify({"error": "No audio file provided in the request"}), 400
+        audio_available = False
+        diagnostics = {}
+        try:
+            from .genre_discogs400 import is_discogs400_available, _default_model_dir, _resolve_embedding_pb
+            md = _default_model_dir()
+            head_pb = md / f"{md.name}.pb"
+            head_onnx = md / f"{md.name}.onnx"
+            labels_json = md / f"{md.name}.json"
+            emb_pb = _resolve_embedding_pb(md)
+            audio_available = bool(is_discogs400_available())
+            diagnostics = {
+                "model_dir": str(md),
+                "head_pb": head_pb.exists(),
+                "head_onnx": head_onnx.exists(),
+                "labels_json": labels_json.exists(),
+                "embedding_pb": bool(emb_pb and (emb_pb.exists() if hasattr(emb_pb, 'exists') else True))
+            }
+        except Exception:
+            audio_available = False
+        try:
+            from .genre_detector import MultiSourceGenreDetector
+            det = MultiSourceGenreDetector()
+            res = det.detect_all_genres("Unknown", "Unknown", audio_path=temp_path)
+            try:
+                from .genre_discogs400 import classify_discogs400
+                raw_top = classify_discogs400(temp_path, top_k=10)
+            except Exception:
+                raw_top = []
+        except Exception as e:
+            return jsonify({"audio_model_available": audio_available, "diagnostics": diagnostics, "error": str(e)}), 500
+        def _pretty_label(lbl: str) -> str:
+            try:
+                a, b = lbl.split('---', 1)
+                return f"{a.strip().title()}: {b.strip().title()}"
+            except Exception:
+                return lbl.replace('---', ' — ').title()
+        top_pretty = [{"label": _pretty_label(l), "score": float(s) if isinstance(s, (int, float)) else s, "raw": l} for (l, s) in raw_top]
+        audio_discogs = res.get("by_source", {}).get("audio_discogs400", [])
+        audio_discogs_pretty = [_pretty_label(x) for x in audio_discogs]
+        return jsonify({
+            "audio_model_available": audio_available,
+            "diagnostics": diagnostics,
+            "by_source": res.get("by_source", {}),
+            "all_genres": res.get("all_genres", []),
+            "discogs400_top": raw_top,
+            "discogs400_top_pretty": top_pretty,
+            "audio_discogs400_pretty": audio_discogs_pretty
+        })
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
 @bp.route("/generate_notes", methods=["POST"])
 def generate_notes():
     print("DEBUG: /generate_notes request received")
@@ -512,5 +507,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/identify_track", "/cancel_task", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/cancel_task", "/songs", "/health"]
     })

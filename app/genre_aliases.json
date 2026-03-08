@@ -2,11 +2,20 @@
   "k-pop": ["kpop", "korean pop", "korean", "k-pop music"],
   "j-pop": ["jpop", "japanese pop", "j-rock", "visual kei", "anime rock"],
   "hip hop": ["hip-hop", "hiphop", "urban"],
-  "rap": ["trap", "cloud rap", "drill", "grime", "uk grime", "trap music", "phonk", "jerk", "flint", "detroit", "detroit rap", "emo rap"],
+  "rap": [
+    "trap", "cloud rap", "drill", "grime", "uk grime", "trap music", "phonk",
+    "jerk", "flint", "detroit", "detroit rap", "emo rap",
+    "hip hop---trap", "hip hop---cloud rap", "hip hop---grime", "hip hop---g-funk",
+    "hip hop---gangsta", "hip hop---hardcore hip-hop", "hip hop---conscious",
+    "hip hop---instrumental", "hip hop---jazzy hip-hop", "hip hop---miami bass",
+    "hip hop---pop rap", "hip hop---thug rap", "hip hop---trip hop", "hip hop---turntablism",
+    "hip hop---bass music", "hip hop---electro", "hip hop"
+  ],
   "electronic": [
     "electronica", "electro", "glitch", "chiptune", "bitpop",
     "nintendocore", "video game music", "retro gaming", "synthwave",
-    "edm", "electronic dance music", "dance", "indietronica"
+    "edm", "electronic dance music", "dance", "indietronica",
+    "electronic---electro", "electronic---experimental", "electronic---idm"
   ],
   "techno": ["detroit techno", "minimal techno", "acid techno"],
   "house": [
@@ -19,14 +28,23 @@
   "rock": [
     "alternative rock", "indie rock", "garage rock", "psychedelic rock",
     "stoner rock", "southern rock", "blues rock", "country rock",
-    "art rock", "prog rock", "shoegaze", "dream pop", "post-punk", "coldwave"
+    "art rock", "prog rock", "shoegaze", "dream pop", "post-punk", "coldwave",
+    "rock---alternative rock", "rock---indie rock", "rock---emo", "rock---garage rock",
+    "rock---blues rock", "rock---country rock", "rock---art rock", "rock---prog rock",
+    "rock---shoegaze", "rock---post punk", "rock---post-punk", "rock---dream pop"
   ],
-  "punk": ["punk rock", "skate punk", "folk punk", "cowpunk", "pop punk"],
+  "punk": [
+    "punk rock", "skate punk", "folk punk", "cowpunk", "pop punk",
+    "rock---punk", "rock---pop punk"
+  ],
   "metal": [
     "heavy metal", "thrash metal", "death metal", "black metal",
     "doom metal", "power metal", "symphonic metal", "nu metal",
     "metalcore", "deathcore", "hardcore", "groove metal", "sludge metal",
     "stoner metal", "folk metal", "christian metal"
+  ],
+  "electropop": [
+    "electro pop", "electronic---synth-pop", "electronic---dance-pop", "synthpop", "synth-pop"
   ],
   "r&b": ["rnb", "contemporary r&b", "neo soul", "motown", "quiet storm"],
   "soul": ["blue-eyed soul", "northern soul", "gospel soul"],
@@ -47,7 +65,6 @@
   "witch house": ["witchhouse"],
   "art pop": ["avant-pop", "experimental pop"],
   "indie pop": ["indie-pop", "bedroom pop"],
-  "electropop": ["electro pop"],
   "future funk": ["futurefunk"],
   "pop": ["dance pop", "teen pop"],
   "hyperpop": ["hyper pop", "pc music", "bubblegum bass"],

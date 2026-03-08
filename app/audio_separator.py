@@ -4,18 +4,19 @@ import librosa
 import os
 
 try:
+    import essentia
     import essentia.standard as es
-
+    try:
+        essentia.log.setLevel(essentia.log.ERROR)
+    except Exception:
+        pass
     ESSENTIA_AVAILABLE = True
-    print("[AudioSeparator] Essentia доступна")
 except ImportError:
     ESSENTIA_AVAILABLE = False
-    print("[AudioSeparator] Essentia не установлена")
 
 
 def detect_kick_snare_with_essentia(y, sr, audio_path: str):
     if not ESSENTIA_AVAILABLE:
-        print("[Essentia] Essentia не установлена, используем librosa")
         return detect_kick_snare_original(y, sr)
 
     try:
@@ -84,13 +85,9 @@ def detect_kick_snare_with_essentia(y, sr, audio_path: str):
         kick_times = remove_close(kick_times)
         snare_times = remove_close(snare_times)
 
-        print(f"[Essentia] Найдено {len(kick_times)} kick и {len(snare_times)} snare")
         return kick_times, snare_times
 
     except Exception as e:
-        print(f"[Essentia] Ошибка детекции: {e}")
-        import traceback
-        traceback.print_exc()
         return detect_kick_snare_original(y, sr)
 
 
@@ -198,11 +195,6 @@ def detect_kick_snare_original(y, sr) -> tuple[list, list]:
         kick_times = remove_close_times(kick_times)
         snare_times = remove_close_times(snare_times)
 
-        print(f"[AudioSeparator] Найдено {len(kick_times)} kick и {len(snare_times)} snare (после обработки)")
-
         return kick_times, snare_times
     except Exception as e:
-        print(f"[AudioSeparator] Ошибка оригинальной детекции: {e}")
-        import traceback
-        traceback.print_exc()
         return [], []

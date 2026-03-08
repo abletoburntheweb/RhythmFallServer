@@ -1,10 +1,9 @@
 # app/genre_detector.py
 import json
-import requests
 import time
 from typing import List, Dict, Optional
-import musicbrainzngs
 from pathlib import Path
+from .genre_discogs400 import classify_discogs400, is_discogs400_available
 
 
 class MultiSourceGenreDetector:
@@ -16,19 +15,6 @@ class MultiSourceGenreDetector:
             self.config_path = Path(config_path)
 
         self.config = self._load_config()
-        self.lastfm_api_key = self.config.get("apis", {}).get("lastfm", {}).get("api_key")
-        self.base_urls = {
-            'lastfm': self.config.get("apis", {}).get("lastfm", {}).get("base_url",
-                                                                        "http://ws.audioscrobbler.com/2.0/"),
-            'musicbrainz': self.config.get("apis", {}).get("musicbrainz", {}).get("base_url",
-                                                                                  "https://musicbrainz.org/ws/2/")
-        }
-
-        musicbrainzngs.set_useragent(
-            self.config.get("musicbrainz", {}).get("app_name", "RhythmFall"),
-            self.config.get("musicbrainz", {}).get("version", "1.0"),
-            self.config.get("musicbrainz", {}).get("contact", "abtw324@gmail.com")
-        )
 
     def _load_config(self) -> Dict:
         try:
@@ -159,39 +145,29 @@ class MultiSourceGenreDetector:
         print(f"[MusicBrainz] Жанры: {unique_genres}")
         return unique_genres
 
-    def detect_all_genres(self, artist: str, title: str) -> Dict[str, List[str]]:
+    def detect_all_genres(self, artist: str, title: str, audio_path: Optional[str] = None) -> Dict[str, List[str]]:
         print(f"🔍 Поиск жанров для: {artist} - {title}")
 
         results = {}
-
-        results['musicbrainz'] = self.get_musicbrainz_genres(artist, title)
-        time.sleep(0.5)
-
-        results['lastfm'] = self.get_lastfm_genres(artist, title)
-        time.sleep(0.5)
-
-        results['discogs'] = []
-
-        all_genres = []
-        for source, genres in results.items():
-            all_genres.extend(genres)
-
-        unique_genres = list(set(all_genres))
-
+        if audio_path and is_discogs400_available():
+            audio_preds = classify_discogs400(audio_path, top_k=5)
+            audio_labels = [label for label, prob in audio_preds]
+        else:
+            audio_labels = []
+        results['audio_discogs400'] = audio_labels
+        unique_genres = list(set(audio_labels))
         print(f"📊 Итоговые жанры: {unique_genres}")
-        print(f"📊 Жанры по источникам:")
-        for source, genres in results.items():
-            if genres:
-                print(f"   {source.capitalize()}: {genres}")
-
+        if audio_labels:
+            print(f"📊 Жанры по источникам:")
+            print(f"   Audio_discogs400: {audio_labels}")
         return {
             'all_genres': unique_genres,
             'by_source': results
         }
 
-def detect_genres(artist: str, title: str) -> List[str]:
+def detect_genres(artist: str, title: str, audio_path: Optional[str] = None) -> List[str]:
     detector = MultiSourceGenreDetector()
-    results = detector.detect_all_genres(artist, title)
+    results = detector.detect_all_genres(artist, title, audio_path=audio_path)
 
     allowed_aliases = set(_GENRE_ALIAS_MAP.keys()) if isinstance(_GENRE_ALIAS_MAP, dict) else set()
     canonical_keys = set(_GENRE_CONFIGS.keys()) if isinstance(_GENRE_CONFIGS, dict) else set()
@@ -209,24 +185,6 @@ def detect_genres(artist: str, title: str) -> List[str]:
         elif key in canonical_keys and key not in seen:
             mapped.append(key)
             seen.add(key)
-
-    if not mapped:
-        ordered_sources = ['musicbrainz', 'lastfm']
-        for src in ordered_sources:
-            for raw in results.get('by_source', {}).get(src, []):
-                key = str(raw).strip().lower()
-                if key in _GENRE_ALIAS_MAP:
-                    canonical = _GENRE_ALIAS_MAP[key]
-                    if canonical in canonical_keys and canonical not in seen:
-                        mapped.append(canonical)
-                        seen.add(canonical)
-                elif key in canonical_keys and key not in seen:
-                    mapped.append(key)
-                    seen.add(key)
-                if len(mapped) >= 5:
-                    break
-            if mapped:
-                break
 
     return mapped[:5]
 

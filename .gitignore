@@ -39,3 +39,8 @@ songs/
 .env.*
 *.secret
 private.key
+.rfenv/
+mdx_model_data.json
+vr_model_data.json
+download_checks.json
+models/

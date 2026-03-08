@@ -6,10 +6,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable
 import shutil
 import bisect
-from .track_detector import REQUESTS_AVAILABLE, identify_track
-
-if REQUESTS_AVAILABLE:
-    import requests
+import logging
+# track identification removed from audio-only pipeline
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("ORT_LOG_SEVERITY_LEVEL", "3")
+os.environ.setdefault("TQDM_DISABLE", "1")
+for _name in ["separator", "mdx_separator", "common_separator", "demucs_separator"]:
+    try:
+        logging.getLogger(_name).setLevel(logging.ERROR)
+    except Exception:
+        pass
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("ORT_LOG_SEVERITY_LEVEL", "3")
 
 try:
     import librosa
@@ -25,10 +33,8 @@ BeatTrackingProcessor = None
 try:
     from audio_separator.separator import Separator
     AUDIO_SEPARATOR_AVAILABLE = True
-    print("[AudioAnalysis] Audio-separator доступен")
 except ImportError:
     AUDIO_SEPARATOR_AVAILABLE = False
-    print("[AudioAnalysis] Audio-separator недоступен")
 
 from .audio_separator import detect_kick_snare_with_essentia
 
@@ -44,6 +50,8 @@ from .drum_utils import load_genre_configs, load_genre_aliases, get_genre_params
 GENRE_CONFIGS = load_genre_configs()
 GENRE_ALIAS_MAP = load_genre_aliases()
 TEMP_UPLOADS_DIR = Path("temp_uploads")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOCAL_MODELS_DIR = PROJECT_ROOT / "models"
 
 
 def import_madmom() -> bool:
@@ -94,58 +102,196 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
         print("[AudioAnalysis] Separator недоступен — используем оригинальный файл")
         return str(song_path)
 
-    try:
-        model_dir = "/tmp/audio-separator-models/"
-        separator = Separator(
-            output_dir=str(splitter_folder),
-            output_format="WAV",
-            model_file_dir=model_dir
-        )
-
-        available_models = separator.get_simplified_model_list()
-        target_model = None
-
-        for model in available_models:
-            if stem_type in model.lower() and ('kuielab' in model.lower() or stem_type in model.lower()):
-                target_model = model
+    def _try_separate(select_model: Optional[str] = None) -> Optional[str]:
+        prev_cwd = os.getcwd()
+        try:
+            os.chdir(str(splitter_folder))
+            model_dir = str(LOCAL_MODELS_DIR) if LOCAL_MODELS_DIR.exists() else "/tmp/audio-separator-models/"
+            separator = Separator(
+                output_dir=str(splitter_folder),
+                output_format="WAV",
+                model_file_dir=model_dir
+            )
+            try:
+                if stem_type == "drums":
+                    local_drums = (LOCAL_MODELS_DIR / "kuielab_a_drums.onnx") if LOCAL_MODELS_DIR.exists() else None
+                    if local_drums and local_drums.exists():
+                        separator.load_model(str(local_drums))
+                        output_files = separator.separate(str(song_path))
+                        norm_files = []
+                        for f in output_files:
+                            p = Path(f)
+                            if not p.is_absolute():
+                                p = splitter_folder / p
+                            norm_files.append(str(p))
+                        def is_target(name: str) -> bool:
+                            n = name.lower()
+                            return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+                        candidates = [f for f in norm_files if is_target(f)]
+                        preferred_out = None
+                        for f in candidates:
+                            lf = f.lower()
+                            if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
+                                continue
+                            preferred_out = f
+                            break
+                        if not preferred_out and candidates:
+                            preferred_out = candidates[0]
+                        if preferred_out and Path(preferred_out).exists():
+                            shutil.copy2(preferred_out, output_path)
+                            for f in norm_files:
+                                try:
+                                    if Path(f).exists() and Path(f) != output_path:
+                                        Path(f).unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+                            for aux in ["mdx_model_data.json", "vr_model_data.json", "download_checks.json"]:
+                                try:
+                                    p = splitter_folder / aux
+                                    if p.exists():
+                                        p.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+                            return str(output_path)
+            except Exception:
+                pass
+            available_models = []
+            try:
+                available_models = separator.get_simplified_model_list()
+            except Exception:
+                pass
+            target_model = None
+            if select_model:
+                for m in available_models:
+                    if select_model.lower() in m.lower():
+                        # для ударных исключаем vocals-модели
+                        if stem_type == "drums" and "vocal" in m.lower():
+                            continue
+                        target_model = m
+                        break
+            if not target_model:
+                for m in available_models:
+                    ml = m.lower()
+                    if 'kuielab_a_drums' in ml:
+                        target_model = m
+                        break
+            if not target_model:
+                for m in available_models:
+                    ml = m.lower()
+                    if 'kuielab' in ml and 'drum' in ml:
+                        target_model = m
+                        break
+            if not target_model:
+                for m in available_models:
+                    ml = m.lower()
+                    # избегаем vocals для ударных
+                    if stem_type == "drums" and "vocal" in ml:
+                        continue
+                    if 'kuielab' in ml:
+                        target_model = m
+                        break
+            # Жёсткий fallback на поддерживаемую библиотекой барабанную модель MDX23C DrumSep
+            if not target_model and stem_type == "drums":
+                try:
+                    separator.load_model("MDX23C-DrumSep-aufr33-jarredou.ckpt")
+                    output_files = separator.separate(str(song_path))
+                    norm_files = []
+                    for f in output_files:
+                        p = Path(f)
+                        if not p.is_absolute():
+                            p = splitter_folder / p
+                        norm_files.append(str(p))
+                    def is_target(name: str) -> bool:
+                        n = name.lower()
+                        return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+                    candidates = [f for f in norm_files if is_target(f)]
+                    preferred_out = None
+                    for f in candidates:
+                        lf = f.lower()
+                        if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
+                            continue
+                        preferred_out = f
+                        break
+                    if not preferred_out and candidates:
+                        preferred_out = candidates[0]
+                    if preferred_out and Path(preferred_out).exists():
+                        shutil.copy2(Path(preferred_out), output_path)
+                        for f in norm_files:
+                            try:
+                                if Path(f).exists() and Path(f) != output_path:
+                                    Path(f).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        for aux in ["mdx_model_data.json", "vr_model_data.json", "download_checks.json"]:
+                            try:
+                                p = splitter_folder / aux
+                                if p.exists():
+                                    p.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        return str(output_path)
+                except Exception:
+                    pass
+            if not target_model:
+                return None
+            separator.load_model(target_model)
+            output_files = separator.separate(str(song_path))
+            # нормализуем и фильтруем выход
+            norm_files = []
+            for f in output_files:
+                p = Path(f)
+                if not p.is_absolute():
+                    p = splitter_folder / p
+                norm_files.append(str(p))
+            def is_target(name: str) -> bool:
+                n = name.lower()
+                if stem_type == "drums":
+                    return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+                if stem_type == "vocals":
+                    return "vocal" in n and "no_vocals" not in n
+                if stem_type == "bass":
+                    return "bass" in n
+                return stem_type in n
+            targets = [f for f in norm_files if is_target(f)]
+            preferred_out = None
+            for f in targets:
+                lf = f.lower()
+                if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
+                    continue
+                preferred_out = f
                 break
-        if not target_model:
-            for model in available_models:
-                if 'htdemucs' in model.lower():
-                    target_model = model
-                    break
-
-        if not target_model:
-            print("[AudioAnalysis] Не найден подходящий separator-модель — используем оригинал")
-            return str(song_path)
-
-        separator.load_model(target_model)
-        print(f"[AudioAnalysis] Загружена separator-модель: {target_model}")
-        output_files = separator.separate(str(song_path))
-
-        targets = [f for f in output_files if stem_type in f.lower()]
-        preferred_out = None
-        for f in targets:
-            lf = f.lower()
-            if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
-                continue
-            preferred_out = f
-            break
-        if not preferred_out and targets:
-            preferred_out = targets[0]
-        if preferred_out:
-            src = splitter_folder / preferred_out
-            if src.exists():
-                print(f"[AudioAnalysis] Выбран stem после разделения: {preferred_out} → {output_path.name}")
-                shutil.copy2(src, output_path)
+            if not preferred_out and targets:
+                preferred_out = targets[0]
+            if preferred_out and Path(preferred_out).exists():
+                shutil.copy2(Path(preferred_out), output_path)
+                for f in norm_files:
+                    try:
+                        if Path(f).exists() and Path(f) != output_path:
+                            Path(f).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                for aux in ["mdx_model_data.json", "vr_model_data.json", "download_checks.json"]:
+                    try:
+                        p = splitter_folder / aux
+                        if p.exists():
+                            p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                 return str(output_path)
+            return None
+        except Exception:
+            return None
+        finally:
+            try:
+                os.chdir(prev_cwd)
+            except Exception:
+                pass
 
-        print("[AudioAnalysis] Не удалось найти корректный stem — используем оригинал")
-        return str(song_path)
-
-    except Exception:
-        print("[AudioAnalysis] Ошибка при разделении — используем оригинал")
-        return str(song_path)
+    # Пытаемся несколькими стратегиями
+    path = _try_separate(select_model=None)
+    if path:
+        return path
+    return str(song_path)
 
 
 def extract_beats(audio_path: str, bpm: Optional[float] = None) -> np.ndarray:
@@ -299,22 +445,18 @@ def analyze_audio(
 
     analysis_path = str(original_file_path)
 
-    if not track_info and auto_identify_track:
-        track_info = identify_track(song_path)
-        if cancel_cb:
-            cancel_cb()
+    # track identification disabled in audio-only mode
 
     all_genres = []
     if track_info and track_info.get('genres'):
         all_genres.extend(track_info['genres'])
 
-    if use_filename_for_genres and not all_genres and GENRE_DETECTION_AVAILABLE:
-        if track_info and track_info.get('artist') != 'Unknown' and track_info.get('title') != 'Unknown':
-            if cancel_cb:
-                cancel_cb()
-            genres = detect_genres(track_info['artist'], track_info['title'])
-            if genres:
-                all_genres.extend(genres)
+    if not all_genres and GENRE_DETECTION_AVAILABLE:
+        if cancel_cb:
+            cancel_cb()
+        genres = detect_genres("Unknown", "Unknown", audio_path=analysis_path)
+        if genres:
+            all_genres.extend(genres)
 
     unique_genres = list(set(g for g in all_genres if g and g.lower() != 'unknown'))
     genre_params = get_genre_params(unique_genres, GENRE_CONFIGS, GENRE_ALIAS_MAP)
