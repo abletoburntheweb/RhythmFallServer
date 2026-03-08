@@ -112,9 +112,7 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
             model_dir = str(LOCAL_MODELS_DIR) if LOCAL_MODELS_DIR.exists() else "/tmp/audio-separator-models/"
             if cancel_cb:
                 cancel_cb()
-            print(f"[AudioAnalysis] Запуск разделения: {song_path.name} → {splitter_folder}")
-            print(f"[AudioAnalysis] Output dir: {splitter_folder.resolve()}")
-            print(f"[AudioAnalysis] Model dir: {model_dir}")
+            print(f"[AudioAnalysis] Запуск разделения: {song_path.name}")
             separator = Separator(
                 output_dir=str(splitter_folder.resolve()),
                 output_format="WAV",
@@ -125,7 +123,6 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                 available_models = separator.get_simplified_model_list()
             except Exception:
                 available_models = []
-            print(f"[AudioAnalysis] Доступные модели: {len(available_models)}")
             target_model = None
             for m in available_models:
                 ml = m.lower()
@@ -145,25 +142,24 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                 return None
             if cancel_cb:
                 cancel_cb()
-            print(f"[AudioAnalysis] Загрузка модели (алиас): {target_model}")
             try:
                 separator.load_model(target_model)
-                print("[AudioAnalysis] Модель загружена")
             except Exception as e:
                 print(f"[AudioAnalysis] Ошибка загрузки модели: {e}")
                 return None
             if cancel_cb:
                 cancel_cb()
-            print("[AudioAnalysis] separator.separate старт")
+            import time as _time
+            _t0 = _time.time()
             try:
                 output_files = separator.separate(str(song_path))
-                print("[AudioAnalysis] separator.separate завершён")
+                _dt = _time.time() - _t0
+                print(f"[AudioAnalysis] Разделение завершено: {_dt:.1f}s, outputs: {len(output_files)}")
             except Exception as e:
                 print(f"[AudioAnalysis] Ошибка separator.separate: {e}")
                 output_files = []
             if cancel_cb:
                 cancel_cb()
-            print(f"[AudioAnalysis] Separator вернул путей: {len(output_files)}")
             norm_files_set = []
             for f in output_files:
                 try:
@@ -181,17 +177,10 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                                 chosen = c2
                     if chosen and chosen.suffix.lower() == ".wav":
                         norm_files_set.append(str(chosen))
-                        print(f"[AudioAnalysis]   map: {f} -> {chosen} (ok)")
-                    else:
-                        print(f"[AudioAnalysis]   skip: {f} (not found or not wav)")
                 except Exception:
-                    print(f"[AudioAnalysis]   err: {f}")
                     continue
             if not norm_files_set:
                 produced = [str(p.resolve()) for p in splitter_folder.rglob("*.wav")]
-                print(f"[AudioAnalysis] Найдено файлов после сепарации (рекурсивно): {len(produced)}")
-                for x in produced:
-                    print(f"[AudioAnalysis]   - {Path(x).name}")
                 norm_files_set = produced
             norm_files = norm_files_set
             def is_target(name: str) -> bool:

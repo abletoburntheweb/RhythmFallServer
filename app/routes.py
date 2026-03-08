@@ -6,6 +6,7 @@ import time
 import json
 from pathlib import Path
 import shutil
+import re
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator_basic
 from . import drum_generator_enhanced
@@ -53,6 +54,17 @@ def _register_task_context(task_id: str, temp_path: str):
         "temp_path": temp_path,
         "song_folder": str(song_folder)
     }
+def _normalize_filename(name: str, default_ext: str = ".mp3") -> str:
+    s = "".join(c for c in name if c.isalnum() or c in "._- ")
+    s = re.sub(r"\s+", " ", s).strip()
+    base, ext = os.path.splitext(s)
+    if not ext:
+        ext = default_ext
+    base = re.sub(r"\.{2,}", ".", base)
+    base = base.lstrip(". ").strip()
+    if not base:
+        base = f"audio_{int(time.time())}"
+    return f"{base}{ext}"
 
 def _mark_cancelled(task_id: str):
     if not task_id:
@@ -139,7 +151,7 @@ def analyze_bpm():
             if file.filename == "":
                 return jsonify({"error": "No file selected"}), 400
 
-            safe_filename = "".join(c for c in file.filename if c.isalnum() or c in "._- ").rstrip()
+            safe_filename = _normalize_filename(file.filename, default_ext=".mp3")
             temp_path = os.path.join("temp_uploads", f"bpm_{int(time.time())}_{safe_filename}")
             file.save(temp_path)
             print(f"[INFO] File received via multipart: {temp_path}")
@@ -234,9 +246,7 @@ def generate_drums():
         drum_mode = generation_mode
         generator = drum_generator_basic if drum_mode == "basic" else drum_generator_enhanced
 
-        safe_filename = "".join(c for c in original_filename if c.isalnum() or c in "._- ").rstrip()
-        if not safe_filename:
-            safe_filename = f"audio_{int(time.time())}.mp3"
+        safe_filename = _normalize_filename(original_filename, default_ext=".mp3")
 
         temp_path = os.path.join("temp_uploads", safe_filename)
         audio_file.save(temp_path)
