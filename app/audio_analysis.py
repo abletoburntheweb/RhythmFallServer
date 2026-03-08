@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple, Callable
 import shutil
 import bisect
 import logging
-# track identification removed from audio-only pipeline
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("ORT_LOG_SEVERITY_LEVEL", "3")
 os.environ.setdefault("TQDM_DISABLE", "1")
@@ -164,7 +163,6 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             if select_model:
                 for m in available_models:
                     if select_model.lower() in m.lower():
-                        # для ударных исключаем vocals-модели
                         if stem_type == "drums" and "vocal" in m.lower():
                             continue
                         target_model = m
@@ -184,13 +182,11 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             if not target_model:
                 for m in available_models:
                     ml = m.lower()
-                    # избегаем vocals для ударных
                     if stem_type == "drums" and "vocal" in ml:
                         continue
                     if 'kuielab' in ml:
                         target_model = m
                         break
-            # Жёсткий fallback на поддерживаемую библиотекой барабанную модель MDX23C DrumSep
             if not target_model and stem_type == "drums":
                 try:
                     separator.load_model("MDX23C-DrumSep-aufr33-jarredou.ckpt")
@@ -236,7 +232,6 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                 return None
             separator.load_model(target_model)
             output_files = separator.separate(str(song_path))
-            # нормализуем и фильтруем выход
             norm_files = []
             for f in output_files:
                 p = Path(f)
@@ -287,7 +282,6 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             except Exception:
                 pass
 
-    # Пытаемся несколькими стратегиями
     path = _try_separate(select_model=None)
     if path:
         return path
@@ -444,8 +438,6 @@ def analyze_audio(
         shutil.copy2(song_path, original_file_path)
 
     analysis_path = str(original_file_path)
-
-    # track identification disabled in audio-only mode
 
     all_genres = []
     if track_info and track_info.get('genres'):

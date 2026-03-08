@@ -273,7 +273,6 @@ def generate_drums():
 
         track_info = None
         print("[DrumGen] Используем только аудио-модель жанров (без сетевых источников)")
-        # Минимальный track_info из имени файла для UI/логов
         artist_guess, title_guess = _extract_artist_title_from_filename(original_filename)
         track_info = {
             "artist": artist_guess or "Unknown",
@@ -402,7 +401,7 @@ def debug_genres_audio():
         audio_available = False
         diagnostics = {}
         try:
-            from .genre_discogs400 import is_discogs400_available, _default_model_dir, _resolve_embedding_pb
+            from .genre_detector import is_discogs400_available, _default_model_dir, _resolve_embedding_pb
             md = _default_model_dir()
             head_pb = md / f"{md.name}.pb"
             head_onnx = md / f"{md.name}.onnx"
@@ -423,7 +422,7 @@ def debug_genres_audio():
             det = MultiSourceGenreDetector()
             res = det.detect_all_genres("Unknown", "Unknown", audio_path=temp_path)
             try:
-                from .genre_discogs400 import classify_discogs400
+                from .genre_detector import classify_discogs400
                 raw_top = classify_discogs400(temp_path, top_k=10)
             except Exception:
                 raw_top = []

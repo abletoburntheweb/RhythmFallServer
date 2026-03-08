@@ -1,11 +1,228 @@
 # app/genre_detector.py
 import json
-import time
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from pathlib import Path
-from .genre_discogs400 import classify_discogs400, is_discogs400_available
-
-
+import os
+import numpy as np
+try:
+    import essentia
+    import essentia.standard as es
+    ESSENTIA_AVAILABLE = True
+except Exception:
+    ESSENTIA_AVAILABLE = False
+try:
+    import onnxruntime as ort
+    ORT_AVAILABLE = True
+except Exception:
+    ORT_AVAILABLE = False
+def _default_model_dir() -> Path:
+    env_p = os.environ.get("RF_DISCOGS400_DIR")
+    if env_p:
+        try:
+            p = Path(env_p)
+            return p
+        except Exception:
+            pass
+    return Path("models/genre_discogs400-discogs-maest-10s-pw-1")
+def _load_labels(model_dir: Path) -> List[str]:
+    labels_path = model_dir / f"{model_dir.name}.json"
+    if not labels_path.exists():
+        return []
+    try:
+        with open(labels_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        classes = data.get("classes") or data.get("labels") or []
+        return [str(c).strip().lower() for c in classes]
+    except Exception:
+        return []
+def _resolve_embedding_pb(model_dir: Path) -> Optional[Path]:
+    labels_path = model_dir / f"{model_dir.name}.json"
+    if not labels_path.exists():
+        return None
+    try:
+        with open(labels_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        model_name = None
+        inf = data.get("inference") or {}
+        emb = inf.get("embedding_model") or {}
+        model_name = emb.get("model_name")
+        env_p = os.environ.get("RF_MAEST_EMBED_PB")
+        if env_p and Path(env_p).exists():
+            return Path(env_p)
+        if model_name:
+            cand1 = model_dir / f"{model_name}.pb"
+            if cand1.exists():
+                return cand1
+            cand2 = model_dir.parent / "maest" / f"{model_name}.pb"
+            if cand2.exists():
+                return cand2
+        parent = model_dir.parent
+        for p in [parent / "discogs-maest-10s-pw-2.pb", model_dir / "discogs-maest-10s-pw-2.pb"]:
+            if p.exists():
+                return p
+    except Exception:
+        return None
+    return None
+def is_discogs400_available(model_dir: Optional[Path] = None) -> bool:
+    md = Path(model_dir) if model_dir else _default_model_dir()
+    pb = md / f"{md.name}.pb"
+    onnx_path = md / f"{md.name}.onnx"
+    js = md / f"{md.name}.json"
+    emb = _resolve_embedding_pb(md)
+    head_ok = pb.exists() or onnx_path.exists()
+    return ESSENTIA_AVAILABLE and head_ok and js.exists() and emb is not None
+def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Path] = None) -> List[Tuple[str, float]]:
+    md = Path(model_dir) if model_dir else _default_model_dir()
+    if not is_discogs400_available(md):
+        print("[Discogs400] Model not available")
+        return []
+    labels = _load_labels(md)
+    if not labels:
+        print("[Discogs400] Labels not loaded")
+        return []
+    head_pb = md / f"{md.name}.pb"
+    head_onnx = md / f"{md.name}.onnx"
+    emb_pb = _resolve_embedding_pb(md)
+    try:
+        loader = es.MonoLoader(filename=audio_path, sampleRate=16000)
+        audio = loader()
+        if emb_pb is None or (not head_pb.exists() and not head_onnx.exists()):
+            print("[Discogs400] Missing head or embedder graph")
+            return []
+        try:
+            embedder = es.TensorflowPredictMAEST(graphFilename=str(emb_pb))
+        except Exception:
+            print("[Discogs400] Failed to init MAEST embedder")
+            return []
+        try:
+            head = None
+            try:
+                head = es.TensorflowPredict(graphFilename=str(head_pb))
+            except Exception:
+                pass
+            if head is None:
+                try:
+                    head = es.TensorflowPredict(graphFilename=str(head_pb), input="embeddings")
+                except Exception:
+                    pass
+            if head is None:
+                try:
+                    head = es.TensorflowPredict(graphFilename=str(head_pb), output="PartitionedCall/Identity_1")
+                except Exception:
+                    pass
+            if head is None:
+                try:
+                    head = es.TensorflowPredict(graphFilename=str(head_pb), input="embeddings", output="PartitionedCall/Identity_1")
+                except Exception:
+                    pass
+            tf_head_failed = head is None
+        except Exception:
+            tf_head_failed = True
+        try:
+            emb = embedder(audio)
+        except Exception:
+            print("[Discogs400] Embedding extraction failed")
+            return []
+        emb_arr = np.asarray(emb, dtype=np.float32)
+        try:
+            print(f"[Discogs400] Raw embedding shape: {emb_arr.shape}")
+        except Exception:
+            pass
+        if emb_arr.shape[-1] == 400:
+            try:
+                y = emb_arr
+                while y.ndim > 2:
+                    y = y.mean(axis=0)
+                if y.ndim == 2 and y.shape[0] > 1:
+                    y = y.mean(axis=0)
+                y = np.squeeze(y)
+                y = y.astype(np.float32)
+                y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+                idx = np.argsort(y)[::-1][:max(1, int(top_k))]
+                out2: List[Tuple[str, float]] = []
+                for i in idx:
+                    if 0 <= int(i) < len(labels):
+                        out2.append((labels[int(i)], float(y[int(i)])))
+                if not out2:
+                    print("[Discogs400] No top-k predictions produced (direct)")
+                return out2
+            except Exception:
+                print("[Discogs400] Direct predictions path failed")
+                return []
+        if emb_arr.ndim == 2:
+            emb_arr = np.expand_dims(emb_arr, 0)
+        if emb_arr.shape[1] != 560:
+            T = emb_arr.shape[1]
+            if T > 560:
+                start = (T - 560) // 2
+                emb_arr = emb_arr[:, start:start + 560, :]
+            else:
+                pad_before = (560 - T) // 2
+                pad_after = 560 - T - pad_before
+                emb_arr = np.pad(emb_arr, ((0, 0), (pad_before, pad_after), (0, 0)), mode='constant')
+        if emb_arr.shape[2] != 768:
+            print(f"[Discogs400] Unexpected embedding dim: {emb_arr.shape}. Expected (*, 560, 768)")
+            return []
+        try:
+            print(f"[Discogs400] Prepared embedding shape: {emb_arr.shape}")
+        except Exception:
+            pass
+        pred = None
+        if not tf_head_failed and head is not None:
+            try:
+                pred = head(emb_arr)
+            except Exception:
+                print("[Discogs400] Head inference failed")
+                pred = None
+        if pred is None and ORT_AVAILABLE:
+            if head_onnx.exists():
+                try:
+                    sess = ort.InferenceSession(str(head_onnx), providers=["CPUExecutionProvider"])
+                    inputs = sess.get_inputs()
+                    input_name = inputs[0].name if inputs else "embeddings"
+                    run_input: Dict[str, np.ndarray] = {}
+                    run_input[input_name] = emb_arr.astype(np.float32)
+                    output_names = [o.name for o in sess.get_outputs()]
+                    if "activations" in output_names:
+                        outputs = sess.run(["activations"], run_input)
+                        pred = outputs[0]
+                    else:
+                        outputs = sess.run(None, run_input)
+                        if isinstance(outputs, list) and len(outputs) >= 2:
+                            pred = outputs[1]
+                        elif isinstance(outputs, list) and len(outputs) >= 1:
+                            pred = outputs[0]
+                except Exception as e:
+                    print(f"[Discogs400] ONNX head inference failed: {e}")
+                    pred = None
+        if pred is None:
+            print("[Discogs400] Failed to init head graph")
+            return []
+        if isinstance(pred, list) or isinstance(pred, tuple):
+            if len(pred) >= 2:
+                y = np.array(pred[1]).astype(np.float32)
+            else:
+                y = np.array(pred[0]).astype(np.float32)
+        else:
+            y = np.array(pred).astype(np.float32)
+        if y.ndim == 2:
+            scores = y.mean(axis=0)
+        elif y.ndim == 1:
+            scores = y
+        else:
+            scores = np.squeeze(y)
+        scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+        idx = np.argsort(scores)[::-1][:max(1, int(top_k))]
+        out: List[Tuple[str, float]] = []
+        for i in idx:
+            if 0 <= int(i) < len(labels):
+                out.append((labels[int(i)], float(scores[int(i)])))
+        if not out:
+            print("[Discogs400] No top-k predictions produced")
+        return out
+    except Exception:
+        print("[Discogs400] Unexpected error during classification")
+        return []
 class MultiSourceGenreDetector:
     def __init__(self, config_path: str = None):
         if config_path is None:
@@ -13,141 +230,19 @@ class MultiSourceGenreDetector:
             self.config_path = module_dir / "config.json"
         else:
             self.config_path = Path(config_path)
-
         self.config = self._load_config()
-
     def _load_config(self) -> Dict:
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(
-                f"[GenreDetector] Файл конфигурации {self.config_path} не найден. Используются значения по умолчанию.")
+            print(f"[GenreDetector] Файл конфигурации {self.config_path} не найден. Используются значения по умолчанию.")
             return {}
         except json.JSONDecodeError as e:
-            print(
-                f"[GenreDetector] Ошибка парсинга JSON в {self.config_path}: {e}. Используются значения по умолчанию.")
+            print(f"[GenreDetector] Ошибка парсинга JSON в {self.config_path}: {e}. Используются значения по умолчанию.")
             return {}
-
-    def search_lastfm(self, artist: str, title: str) -> Optional[dict]:
-        if not self.lastfm_api_key:
-            print("[LastFM] API ключ не предоставлен")
-            return None
-
-        params = {
-            'method': 'track.getInfo',
-            'api_key': self.lastfm_api_key,
-            'artist': artist,
-            'track': title,
-            'format': 'json'
-        }
-
-        try:
-            response = requests.get(self.base_urls['lastfm'], params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-
-            if 'error' in data:
-                print(f"[LastFM] Ошибка: {data.get('message', 'Unknown error')}")
-                return None
-
-            return data.get('track')
-        except Exception as e:
-            print(f"[LastFM] Ошибка поиска: {e}")
-            return None
-
-    def get_lastfm_genres(self, artist: str, title: str) -> List[str]:
-        track_data = self.search_lastfm(artist, title)
-        if not track_data:
-            return []
-
-        genres = []
-
-        if 'toptags' in track_data and 'tag' in track_data['toptags']:
-            for tag in track_data['toptags']['tag']:
-                if 'name' in tag:
-                    genres.append(tag['name'].lower())
-
-        if not genres and 'artist' in track_data:
-            artist_name = track_data['artist'].get('name', artist)
-            artist_genres = self.get_lastfm_artist_genres(artist_name)
-            genres.extend(artist_genres)
-
-        unique_genres = list(set(genres))[:10]
-        print(f"[LastFM] Жанры: {unique_genres}")
-        return unique_genres
-
-    def get_lastfm_artist_genres(self, artist_name: str) -> List[str]:
-        if not self.lastfm_api_key:
-            return []
-
-        params = {
-            'method': 'artist.getTopTags',
-            'api_key': self.lastfm_api_key,
-            'artist': artist_name,
-            'format': 'json'
-        }
-
-        try:
-            response = requests.get(self.base_urls['lastfm'], params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-
-            if 'toptags' in data and 'tag' in data['toptags']:
-                genres = []
-                for tag in data['toptags']['tag']:
-                    if 'name' in tag:
-                        genres.append(tag['name'].lower())
-                return genres[:10]
-
-        except Exception as e:
-            print(f"[LastFM] Ошибка получения тегов исполнителя: {e}")
-
-        return []
-
-    def search_musicbrainz(self, artist: str, title: str) -> Optional[Dict]:
-        try:
-            results = musicbrainzngs.search_recordings(query=f"{title} AND {artist}", limit=3)
-
-            if 'recording-list' in results and results['recording-list']:
-                return results['recording-list'][0]
-            return None
-        except Exception as e:
-            print(f"[MusicBrainz] Ошибка поиска: {e}")
-            return None
-
-    def get_musicbrainz_genres(self, artist: str, title: str) -> List[str]:
-        recording = self.search_musicbrainz(artist, title)
-        if not recording:
-            return []
-
-        genres = []
-
-        if 'artist-credit' in recording and recording['artist-credit']:
-            artist_credit = recording['artist-credit'][0]
-            if 'artist' in artist_credit:
-                artist_mbid = artist_credit['artist']['id']
-
-                try:
-                    artist_data = musicbrainzngs.get_artist_by_id(artist_mbid, includes=['tags'])
-                    if 'artist' in artist_data and 'tags' in artist_data['artist']:
-                        for tag in artist_data['artist']['tags']:
-                            genres.append(tag['name'].lower())
-                except Exception as e:
-                    print(f"[MusicBrainz] Ошибка получения тегов исполнителя: {e}")
-
-        if 'tag-list' in recording:
-            for tag in recording['tag-list']:
-                if 'name' in tag:
-                    genres.append(tag['name'].lower())
-
-        unique_genres = list(set(genres))[:10]
-        print(f"[MusicBrainz] Жанры: {unique_genres}")
-        return unique_genres
-
     def detect_all_genres(self, artist: str, title: str, audio_path: Optional[str] = None) -> Dict[str, List[str]]:
         print(f"🔍 Поиск жанров для: {artist} - {title}")
-
         results = {}
         if audio_path and is_discogs400_available():
             audio_preds = classify_discogs400(audio_path, top_k=5)
@@ -160,41 +255,64 @@ class MultiSourceGenreDetector:
         if audio_labels:
             print(f"📊 Жанры по источникам:")
             print(f"   Audio_discogs400: {audio_labels}")
-        return {
-            'all_genres': unique_genres,
-            'by_source': results
-        }
-
+        return {'all_genres': unique_genres, 'by_source': results}
 def detect_genres(artist: str, title: str, audio_path: Optional[str] = None) -> List[str]:
     detector = MultiSourceGenreDetector()
     results = detector.detect_all_genres(artist, title, audio_path=audio_path)
-
-    allowed_aliases = set(_GENRE_ALIAS_MAP.keys()) if isinstance(_GENRE_ALIAS_MAP, dict) else set()
+    alias_map = _GENRE_ALIAS_MAP if isinstance(_GENRE_ALIAS_MAP, dict) else {}
     canonical_keys = set(_GENRE_CONFIGS.keys()) if isinstance(_GENRE_CONFIGS, dict) else set()
-    allowed = allowed_aliases | canonical_keys
-
     mapped: List[str] = []
     seen = set()
+    def norm(s: str) -> str:
+        x = str(s).strip().lower()
+        x = x.replace("—", "-").replace("_", " ").replace("  ", " ")
+        x = x.replace(" - ", "-").replace("-", "-")
+        x = x.replace("/", " / ")
+        x = " ".join(x.split())
+        return x
+    def candidates(label: str) -> List[str]:
+        k = norm(label)
+        cands = [k]
+        if '---' in k:
+            parent, child = k.split('---', 1)
+            child = child.strip()
+            cands.append(child)
+            cands.append(child.replace('-', ' '))
+            cands.append(child.replace(' / ', ' '))
+        cands.append(k.replace('---', ' '))
+        cands.append(k.replace('---', ' ').replace('-', ' '))
+        return list(dict.fromkeys([c.strip() for c in cands if c.strip()]))
     for raw in results.get('all_genres', []):
-        key = str(raw).strip().lower()
-        if key in _GENRE_ALIAS_MAP:
-            canonical = _GENRE_ALIAS_MAP[key]
-            if canonical in canonical_keys and canonical not in seen:
-                mapped.append(canonical)
-                seen.add(canonical)
-        elif key in canonical_keys and key not in seen:
-            mapped.append(key)
-            seen.add(key)
-
+        found = None
+        for cand in candidates(raw):
+            if cand in canonical_keys:
+                found = cand
+                break
+            if cand in alias_map:
+                tgt = alias_map[cand]
+                if tgt in canonical_keys:
+                    found = tgt
+                    break
+            if '---' in cand:
+                try:
+                    _, sub = cand.split('---', 1)
+                    sub_norm = sub.strip()
+                    if sub_norm in canonical_keys:
+                        found = sub_norm
+                        break
+                    sub_space = sub_norm.replace('-', ' ')
+                    if sub_space in alias_map and alias_map[sub_space] in canonical_keys:
+                        found = alias_map[sub_space]
+                        break
+                except Exception:
+                    pass
+        if found and found not in seen:
+            mapped.append(found)
+            seen.add(found)
     return mapped[:5]
-
-
 from .drum_utils import load_genre_configs, load_genre_aliases, get_genre_params
-
 _GENRE_CONFIGS = load_genre_configs()
 _GENRE_ALIAS_MAP = load_genre_aliases()
-
-
 def get_genre_config(genre_name: str) -> dict:
     key = genre_name.strip().lower() if isinstance(genre_name, str) else "groove"
     if key in _GENRE_CONFIGS:
