@@ -125,31 +125,21 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                 available_models = separator.get_simplified_model_list()
             except Exception:
                 available_models = []
-            if available_models:
-                print(f"[AudioAnalysis] Доступные модели: {len(available_models)}")
-                for m in available_models:
-                    ml = m.lower()
-                    if "kuielab" in ml:
-                        print(f"[AudioAnalysis]   * {m}")
+            print(f"[AudioAnalysis] Доступные модели: {len(available_models)}")
             target_model = None
             for m in available_models:
-                if m.lower() == "kuielab_a_drums":
+                ml = m.lower()
+                if stem_type in ml and ("kuielab" in ml or stem_type in ml):
                     target_model = m
                     break
             if not target_model:
                 for m in available_models:
-                    ml = m.lower()
-                    if "kuielab" in ml and "drum" in ml:
-                        target_model = m
-                        break
-            if not target_model:
-                for m in available_models:
-                    if "kuielab" in m.lower():
+                    if "htdemucs" in m.lower():
                         target_model = m
                         break
             if not target_model and available_models:
                 target_model = available_models[0]
-                print(f"[AudioAnalysis] Временный выбор модели (нет kuielab): {target_model}")
+                print(f"[AudioAnalysis] Fallback модель: {target_model}")
             if not target_model:
                 print("[AudioAnalysis] Нет доступных моделей в separator — пропускаем разделение")
                 return None
@@ -206,7 +196,9 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
             norm_files = norm_files_set
             def is_target(name: str) -> bool:
                 n = name.lower()
-                return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+                if stem_type == "drums":
+                    return ("drum" in n or "percussion" in n) and not any(bad in n for bad in ["no drums", "(no drums)", "no_drums", "instrumental"])
+                return (stem_type in n) and (f"no_{stem_type}" not in n) and ("(no " + stem_type + ")" not in n)
             candidates = [f for f in norm_files if is_target(f)]
             preferred_out = None
             for f in candidates:
@@ -234,7 +226,7 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                     pass
                 for f in norm_files:
                     try:
-                        if Path(f).exists() and Path(f) != output_path and Path(f) != Path(preferred_out):
+                        if Path(f).exists() and Path(f) != output_path:
                             Path(f).unlink(missing_ok=True)
                     except Exception:
                         pass
