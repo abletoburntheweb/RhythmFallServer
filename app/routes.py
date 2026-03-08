@@ -248,7 +248,7 @@ def generate_drums():
         if bpm is None:
             print("[DrumGen] BPM not provided, calculating...")
             _check_cancel(task_id)
-            bpm_result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False)
+            bpm_result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False, cancel_cb=lambda: _check_cancel(task_id))
             if bpm_result.get("bpm") is None:
                 error_msg = bpm_result.get("error", "Failed to calculate BPM")
                 return jsonify({"error": f"Could not determine BPM: {error_msg}"}), 500

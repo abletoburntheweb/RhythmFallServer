@@ -3,6 +3,7 @@ import os
 import json
 import numpy as np
 from pathlib import Path
+from typing import Callable, Optional
 
 SONGS_CACHE_FILE = "data/songs_cache.json"
 
@@ -91,22 +92,30 @@ def _tempcnn_model_path() -> str | None:
     return None
 
 
-def _calculate_bpm_tempcnn(file_path: str) -> int | None:
+def _calculate_bpm_tempcnn(file_path: str, cancel_cb: Optional[Callable[[], None]] = None) -> int | None:
     if not TEMPOCNN_AVAILABLE:
         return None
     graph = _tempcnn_model_path()
     if not graph:
         return None
     try:
+        if cancel_cb:
+            cancel_cb()
         loader = es.MonoLoader(filename=file_path, sampleRate=11025, resampleQuality=4)
         audio = loader()
+        if cancel_cb:
+            cancel_cb()
         model = es.TempoCNN(graphFilename=str(graph))
+        if cancel_cb:
+            cancel_cb()
         g, lt, lp = model(audio)
         if isinstance(g, (list, tuple, np.ndarray)):
             g = float(np.array(g).flatten()[0])
         bpm = float(g)
         if bpm <= 0 or np.isnan(bpm):
             return None
+        if cancel_cb:
+            cancel_cb()
         if bpm < 90:
             while bpm < 90:
                 bpm *= 2.0
@@ -136,14 +145,16 @@ def preprocess_audio_for_bpm(y, sr):
         return y
 
 
-def calculate_bpm(file_path, save_cache=True):
+def calculate_bpm(file_path, save_cache=True, cancel_cb: Optional[Callable[[], None]] = None):
     fname = Path(file_path).name.lower()
     cached = get_bpm_from_cache(file_path)
     if cached is not None:
         return {"file": fname, "bpm": cached, "source": "cache"}
 
     try:
-        bpm_tc = _calculate_bpm_tempcnn(file_path)
+        if cancel_cb:
+            cancel_cb()
+        bpm_tc = _calculate_bpm_tempcnn(file_path, cancel_cb=cancel_cb)
     except Exception as e:
         print(f"[TempoCNN] Ошибка: {e}")
         bpm_tc = None
@@ -155,11 +166,15 @@ def calculate_bpm(file_path, save_cache=True):
     try:
         import librosa
         try:
+            if cancel_cb:
+                cancel_cb()
             y, sr = librosa.load(file_path, sr=22050)
         except Exception as load_error:
             print(f"[ERROR] Failed to load audio file {file_path}: {load_error}")
             return {"file": fname, "bpm": None, "error": f"Failed to load audio file: {str(load_error)}"}
 
+        if cancel_cb:
+            cancel_cb()
         if y.ndim > 1:
             y = librosa.to_mono(y)
         y = librosa.util.normalize(y)
@@ -170,10 +185,14 @@ def calculate_bpm(file_path, save_cache=True):
 
         hop_opts = [256, 512, 1024]
         ac_sizes = [2.0, 4.0, 8.0]
+        if cancel_cb:
+            cancel_cb()
         onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=512)
         for h in hop_opts:
             for a in ac_sizes:
                 try:
+                    if cancel_cb:
+                        cancel_cb()
                     t = librosa.beat.tempo(y=y, sr=sr, hop_length=h, ac_size=a, max_tempo=300.0, offset=0.0)
                     tempos.extend([float(t[0])])
                 except Exception as e:
@@ -181,6 +200,8 @@ def calculate_bpm(file_path, save_cache=True):
         try:
             from scipy.signal import find_peaks
             hop = 512
+            if cancel_cb:
+                cancel_cb()
             onset_env_h = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
             acf = np.correlate(onset_env_h, onset_env_h, mode='full')[len(onset_env_h)-1:]
             lag_min = max(1, int((sr / hop) * (60.0 / 250.0)))
@@ -194,12 +215,16 @@ def calculate_bpm(file_path, save_cache=True):
             pass
 
         try:
+            if cancel_cb:
+                cancel_cb()
             t_bt, _ = librosa.beat.beat_track(y=y, sr=sr, hop_length=512)
             tempos.append(float(t_bt))
         except Exception as e:
             pass
 
         try:
+            if cancel_cb:
+                cancel_cb()
             t_feat = librosa.feature.tempo(y=y, sr=sr, hop_length=512, win_length=384)
             if t_feat is not None and len(t_feat) > 0:
                 tempos.extend([float(v) for v in t_feat.flatten()])
@@ -232,6 +257,8 @@ def calculate_bpm(file_path, save_cache=True):
             if 80 <= bpm <= 190:
                 return 1.0
             return 0.97
+        if cancel_cb:
+            cancel_cb()
         candidates = [t for t in tempos if 40 <= t <= 250]
         cand_set = set(int(round(c)) for c in candidates)
         cand_list = sorted(cand_set)
@@ -245,6 +272,8 @@ def calculate_bpm(file_path, save_cache=True):
         if not scaled:
             bpm = 120
         else:
+            if cancel_cb:
+                cancel_cb()
             scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in scaled]
             scores.sort(key=lambda x: x[1], reverse=True)
             best_bpm, best_score = int(scores[0][0]), scores[0][1]
@@ -263,6 +292,8 @@ def calculate_bpm(file_path, save_cache=True):
                     if 40 <= vv <= 250:
                         fam.append(vv)
                 fam = sorted(set(fam))
+                if cancel_cb:
+                    cancel_cb()
                 fam_scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in fam]
                 fam_scores.sort(key=lambda x: x[1], reverse=True)
                 cf_bpm, cf_score = int(fam_scores[0][0]), fam_scores[0][1]
@@ -271,6 +302,8 @@ def calculate_bpm(file_path, save_cache=True):
                 bpm = int(best_bpm)
 
         try:
+            if cancel_cb:
+                cancel_cb()
             spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))
             zero_crossing_rate = np.mean(librosa.feature.zero_crossing_rate(y))
         except Exception as e:
@@ -285,6 +318,8 @@ def calculate_bpm(file_path, save_cache=True):
                 if 40 <= vv <= 250:
                     family.append(vv)
             family = sorted(set(family))
+            if cancel_cb:
+                cancel_cb()
             fam_scores = [(v, _grid_score(onset_times, v) * _penalty(v)) for v in family]
             fam_scores.sort(key=lambda x: x[1], reverse=True)
             bpm = int(fam_scores[0][0])

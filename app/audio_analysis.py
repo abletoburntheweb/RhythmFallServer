@@ -70,7 +70,7 @@ def import_madmom() -> bool:
         return False
 
 
-def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") -> str:
+def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", cancel_cb: Optional[Callable[[], None]] = None) -> str:
     song_path = Path(song_path)
     splitter_folder = song_folder / "splitter"
     splitter_folder.mkdir(parents=True, exist_ok=True)
@@ -78,13 +78,19 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
     expected_name = f"{song_path.stem}_{stem_type}.wav"
     output_path = splitter_folder / expected_name
 
+    if cancel_cb:
+        cancel_cb()
     if output_path.exists():
         print(f"[AudioAnalysis] Использую кешированный stem: {output_path.name}")
         return str(output_path)
 
+    if cancel_cb:
+        cancel_cb()
     candidates = [f for f in splitter_folder.glob("*.wav") if stem_type in f.name.lower()]
     preferred = None
     for f in candidates:
+        if cancel_cb:
+            cancel_cb()
         name = f.name.lower()
         if "no drums" in name or "(no drums)" in name or "no_drums" in name:
             continue
@@ -106,6 +112,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
         try:
             os.chdir(str(splitter_folder))
             model_dir = str(LOCAL_MODELS_DIR) if LOCAL_MODELS_DIR.exists() else "/tmp/audio-separator-models/"
+            if cancel_cb:
+                cancel_cb()
             separator = Separator(
                 output_dir=str(splitter_folder),
                 output_format="WAV",
@@ -115,10 +123,16 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                 if stem_type == "drums":
                     local_drums = (LOCAL_MODELS_DIR / "kuielab_a_drums.onnx") if LOCAL_MODELS_DIR.exists() else None
                     if local_drums and local_drums.exists():
+                        if cancel_cb:
+                            cancel_cb()
                         separator.load_model(str(local_drums))
+                        if cancel_cb:
+                            cancel_cb()
                         output_files = separator.separate(str(song_path))
                         norm_files = []
                         for f in output_files:
+                            if cancel_cb:
+                                cancel_cb()
                             p = Path(f)
                             if not p.is_absolute():
                                 p = splitter_folder / p
@@ -129,6 +143,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                         candidates = [f for f in norm_files if is_target(f)]
                         preferred_out = None
                         for f in candidates:
+                            if cancel_cb:
+                                cancel_cb()
                             lf = f.lower()
                             if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
                                 continue
@@ -137,6 +153,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                         if not preferred_out and candidates:
                             preferred_out = candidates[0]
                         if preferred_out and Path(preferred_out).exists():
+                            if cancel_cb:
+                                cancel_cb()
                             shutil.copy2(preferred_out, output_path)
                             for f in norm_files:
                                 try:
@@ -189,10 +207,16 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                         break
             if not target_model and stem_type == "drums":
                 try:
+                    if cancel_cb:
+                        cancel_cb()
                     separator.load_model("MDX23C-DrumSep-aufr33-jarredou.ckpt")
+                    if cancel_cb:
+                        cancel_cb()
                     output_files = separator.separate(str(song_path))
                     norm_files = []
                     for f in output_files:
+                        if cancel_cb:
+                            cancel_cb()
                         p = Path(f)
                         if not p.is_absolute():
                             p = splitter_folder / p
@@ -203,6 +227,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                     candidates = [f for f in norm_files if is_target(f)]
                     preferred_out = None
                     for f in candidates:
+                        if cancel_cb:
+                            cancel_cb()
                         lf = f.lower()
                         if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
                             continue
@@ -211,6 +237,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                     if not preferred_out and candidates:
                         preferred_out = candidates[0]
                     if preferred_out and Path(preferred_out).exists():
+                        if cancel_cb:
+                            cancel_cb()
                         shutil.copy2(Path(preferred_out), output_path)
                         for f in norm_files:
                             try:
@@ -230,10 +258,16 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
                     pass
             if not target_model:
                 return None
+            if cancel_cb:
+                cancel_cb()
             separator.load_model(target_model)
+            if cancel_cb:
+                cancel_cb()
             output_files = separator.separate(str(song_path))
             norm_files = []
             for f in output_files:
+                if cancel_cb:
+                    cancel_cb()
                 p = Path(f)
                 if not p.is_absolute():
                     p = splitter_folder / p
@@ -250,6 +284,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             targets = [f for f in norm_files if is_target(f)]
             preferred_out = None
             for f in targets:
+                if cancel_cb:
+                    cancel_cb()
                 lf = f.lower()
                 if "no drums" in lf or "(no drums)" in lf or "no_drums" in lf:
                     continue
@@ -258,6 +294,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             if not preferred_out and targets:
                 preferred_out = targets[0]
             if preferred_out and Path(preferred_out).exists():
+                if cancel_cb:
+                    cancel_cb()
                 shutil.copy2(Path(preferred_out), output_path)
                 for f in norm_files:
                     try:
@@ -282,6 +320,8 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums") 
             except Exception:
                 pass
 
+    if cancel_cb:
+        cancel_cb()
     path = _try_separate(select_model=None)
     if path:
         return path
@@ -439,6 +479,7 @@ def analyze_audio(
 
     analysis_path = str(original_file_path)
 
+
     all_genres = []
     if track_info and track_info.get('genres'):
         all_genres.extend(track_info['genres'])
@@ -468,7 +509,7 @@ def analyze_audio(
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
         if cancel_cb:
             cancel_cb()
-        stem_path = separate_stems(str(original_file_path), song_folder, stem_type=stem_type)
+        stem_path = separate_stems(str(original_file_path), song_folder, stem_type=stem_type, cancel_cb=cancel_cb)
         if stem_path != str(original_file_path):
             analysis_path = stem_path
             print(f"[AudioAnalysis] Для анализа выбран stem: {Path(analysis_path).name}")
@@ -557,7 +598,7 @@ def extract_drum_hits(
     if use_stems and AUDIO_SEPARATOR_AVAILABLE:
         if cancel_cb:
             cancel_cb()
-        stem_path = separate_stems(str(local_path), temp_dir, stem_type="drums")
+        stem_path = separate_stems(str(local_path), temp_dir, stem_type="drums", cancel_cb=cancel_cb)
         if stem_path != str(local_path):
             analysis_path = stem_path
 
