@@ -6,6 +6,13 @@ from pathlib import Path
 
 SONGS_CACHE_FILE = "data/songs_cache.json"
 
+try:
+    import essentia
+    import essentia.standard as es
+    TEMPOCNN_AVAILABLE = True
+except Exception:
+    TEMPOCNN_AVAILABLE = False
+
 
 def load_songs_cache():
     if os.path.exists(SONGS_CACHE_FILE):
@@ -56,10 +63,67 @@ def save_bpm_to_cache(song_path, bpm):
 BPM_CACHE = {Path(k).name.lower(): v.get("bpm") for k, v in load_songs_cache().items()}
 
 
+def _tempcnn_model_path() -> str | None:
+    env_dir = os.environ.get("RF_TEMPOCNN_DIR")
+    names = [
+        "deeptemp-k16-3.pb",
+        "deeptemp-k4-3.pb",
+        "deepsquare-k16-3.pb",
+        "deepsquare-k4-3.pb",
+    ]
+    if env_dir:
+        base = Path(env_dir)
+        for n in names:
+            p = base / n
+            if p.exists():
+                return str(p)
+    base = Path("models") / "deeptemp-k16"
+    for n in names:
+        p = base / n
+        if p.exists():
+            return str(p)
+    base_alt = Path("models")
+    for sub in ["deeptemp-k4", "deepsquare-k16", "deepsquare-k4"]:
+        for n in names:
+            p = base_alt / sub / n
+            if p.exists():
+                return str(p)
+    return None
+
+
+def _calculate_bpm_tempcnn(file_path: str) -> int | None:
+    if not TEMPOCNN_AVAILABLE:
+        return None
+    graph = _tempcnn_model_path()
+    if not graph:
+        return None
+    try:
+        loader = es.MonoLoader(filename=file_path, sampleRate=11025, resampleQuality=4)
+        audio = loader()
+        model = es.TempoCNN(graphFilename=str(graph))
+        g, lt, lp = model(audio)
+        if isinstance(g, (list, tuple, np.ndarray)):
+            g = float(np.array(g).flatten()[0])
+        bpm = float(g)
+        if bpm <= 0 or np.isnan(bpm):
+            return None
+        if bpm < 90:
+            while bpm < 90:
+                bpm *= 2.0
+        elif bpm > 200:
+            while bpm > 200:
+                bpm /= 2.0
+        bpm = int(round(max(90, min(200, bpm))))
+        return bpm
+    except Exception as e:
+        print(f"[TempoCNN] Ошибка инференса: {e}")
+        return None
+
 def preprocess_audio_for_bpm(y, sr):
     try:
         import librosa
         if y.ndim > 1:
+            y = librosa.to_mono(y)
             y = librosa.to_mono(y)
         spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
         avg_centroid = np.mean(spectral_centroids)
@@ -77,6 +141,16 @@ def calculate_bpm(file_path, save_cache=True):
     cached = get_bpm_from_cache(file_path)
     if cached is not None:
         return {"file": fname, "bpm": cached, "source": "cache"}
+
+    try:
+        bpm_tc = _calculate_bpm_tempcnn(file_path)
+    except Exception as e:
+        print(f"[TempoCNN] Ошибка: {e}")
+        bpm_tc = None
+    if bpm_tc is not None:
+        if save_cache:
+            save_bpm_to_cache(file_path, bpm_tc)
+        return {"file": fname, "bpm": bpm_tc, "source": "tempcnn"}
 
     try:
         import librosa
