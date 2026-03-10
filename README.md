@@ -6,6 +6,8 @@ Languages: English | [Русский](./README.ru.md)
 
 Note: This repository contains the server/backend for RhythmFall. For the Godot client, use the client repository: https://github.com/abletoburntheweb/RhythmFall
 
+Models: Not included in the repository. Download archives from Releases (https://github.com/abletoburntheweb/RhythmFallServer/releases) and unpack into rhythmfall-server/models.
+
 ## What It Is
 - Lightweight local HTTP server (Flask) handling audio analysis and chart generation.
 - Provides endpoints for BPM detection and drum‑focused note generation.
@@ -55,6 +57,7 @@ Open http://127.0.0.1:5000 — you should see: {"message": "RhythmFallServer is 
   - madmom — beat tracking for more stable alignment.
   - Essentia (TempoCNN) — robust tempo estimation and audio feature extraction.
   - onnxruntime — run ONNX heads for genre classification.
+  - These extras are already listed in requirements.txt; installation may require additional system packages (e.g., PyTorch for demucs, ffmpeg).
 
 ## Genre Classification Models (optional)
 - Discogs400 head and labels (+ MAEST embedding) are supported if present.
