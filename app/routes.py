@@ -311,40 +311,47 @@ def generate_drums():
         print(f"[DrumGen] Жанр для генерации: {effective_primary or 'groove'}")
         _report_status(task_id, "Разделение на стемы...")
         _check_cancel(task_id)
-        notes = generator.generate_drums_notes(
-            temp_path,
-            bpm,
-            lanes=lanes,
-            sync_tolerance=sync_tolerance,
-            use_madmom_beats=True,
-            use_stems=use_stems,
-            track_info=track_info,
-            auto_identify_track=False,
-            use_filename_for_genres=False,
-            provided_genres=provided_genres,
-            provided_primary_genre=effective_primary,
-            status_cb=lambda s: _report_status(task_id, s),
-            cancel_cb=lambda: _check_cancel(task_id)
-        )
-        _check_cancel(task_id)
+        notes_variants = {}
+        lanes_set = [3, 4, 5]
+        for L in lanes_set:
+            _report_status(task_id, f"Генерация нот для {L} линий…")
+            variant_notes = generator.generate_drums_notes(
+                temp_path,
+                bpm,
+                lanes=L,
+                sync_tolerance=sync_tolerance,
+                use_madmom_beats=True,
+                use_stems=use_stems,
+                track_info=track_info,
+                auto_identify_track=False,
+                use_filename_for_genres=False,
+                provided_genres=provided_genres,
+                provided_primary_genre=effective_primary,
+                status_cb=lambda s: _report_status(task_id, s),
+                cancel_cb=lambda: _check_cancel(task_id)
+            )
+            _check_cancel(task_id)
+            if not variant_notes:
+                return jsonify({"error": f"No drum notes generated for lanes={L}"}), 500
+            notes_variants[str(L)] = variant_notes
 
-        if not notes:
-            return jsonify({"error": "No drum notes generated"}), 500
+        chosen_notes = notes_variants.get(str(lanes)) or notes_variants.get("4") or next(iter(notes_variants.values()))
 
         _report_status(task_id, "Сохранение нот...")
         _check_cancel(task_id)
-        generator.save_drums_notes(notes, temp_path, mode=drum_mode)
+        generator.save_drums_notes(chosen_notes, temp_path, mode=drum_mode)
         _check_cancel(task_id)
 
-        drum_count = len([n for n in notes if n.get("type") == "DrumNote"])
+        drum_count = len([n for n in chosen_notes if n.get("type") == "DrumNote"])
         response_data = {
-            "notes": notes,
+            "notes": chosen_notes,
+            "notes_variants": notes_variants,
             "bpm": bpm,
             "lanes": lanes,
             "instrument_type": instrument_type,
             "mode": drum_mode,
             "statistics": {
-                "total_notes": len(notes),
+                "total_notes": len(chosen_notes),
                 "drum_notes": drum_count
             },
             "status": "success"
