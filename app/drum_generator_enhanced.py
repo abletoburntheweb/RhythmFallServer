@@ -55,10 +55,12 @@ def generate_drums_notes(
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
     provided_primary_genre: Optional[str] = None,
+    verbose: bool = True,
     status_cb=None,
     cancel_cb=None
 ) -> Optional[List[Dict]]:
-    print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
+    if verbose:
+        print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
 
     if cancel_cb:
         cancel_cb()
@@ -77,7 +79,8 @@ def generate_drums_notes(
         cancel_cb()
 
     if not analysis or "bpm" not in analysis:
-        print("[DrumGen-Enhanced] Fallback: отсутствуют данные анализа")
+        if verbose:
+            print("[DrumGen-Enhanced] Fallback: отсутствуют данные анализа")
         return drum_generator_basic.generate_drums_notes(
             song_path,
             bpm,
@@ -90,6 +93,7 @@ def generate_drums_notes(
             use_filename_for_genres=use_filename_for_genres,
             provided_genres=provided_genres,
             provided_primary_genre=provided_primary_genre,
+            verbose=verbose,
             status_cb=status_cb,
             cancel_cb=cancel_cb
         )
@@ -120,6 +124,7 @@ def generate_drums_notes(
         use_filename_for_genres=use_filename_for_genres,
         provided_genres=provided_genres,
         provided_primary_genre=provided_primary_genre,
+        verbose=verbose,
         status_cb=status_cb,
         cancel_cb=cancel_cb
     )
@@ -142,7 +147,8 @@ def generate_drums_notes(
         genre_label = str(unique_genres[0]).strip().lower()
     else:
         genre_label = "default"
-    print(f"[DrumGen-Enhanced] Жанр для дополнений: {genre_label}")
+    if verbose:
+        print(f"[DrumGen-Enhanced] Жанр для дополнений: {genre_label}")
 
     kick_times = analysis.get("kick_times", [])
     snare_times = analysis.get("snare_times", [])
@@ -243,8 +249,9 @@ def generate_drums_notes(
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)
-    print(f"✅ Сгенерировано {drum_count} барабанных нот (enhanced-augment)")
-    print(f"   - Дополнено: {len(added)} | Базовых: {len(base_times)}")
-    print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
-    print(f"   - BPM: {bpm}")
+    if verbose:
+        print(f"✅ Сгенерировано {drum_count} барабанных нот (enhanced-augment)")
+        print(f"   - Дополнено: {len(added)} | Базовых: {len(base_times)}")
+        print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
+        print(f"   - BPM: {bpm}")
     return notes

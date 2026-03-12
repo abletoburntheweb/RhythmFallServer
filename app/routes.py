@@ -328,6 +328,7 @@ def generate_drums():
                     use_filename_for_genres=False,
                     provided_genres=provided_genres,
                     provided_primary_genre=effective_primary,
+                    verbose=(L == lanes),
                     status_cb=lambda s: _report_status(task_id, s),
                     cancel_cb=lambda: _check_cancel(task_id)
                 )

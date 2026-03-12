@@ -31,10 +31,12 @@ def generate_drums_notes(
     use_filename_for_genres: bool = True,
     provided_genres: Optional[List[str]] = None,
     provided_primary_genre: Optional[str] = None,
+    verbose: bool = True,
     status_cb=None,
     cancel_cb=None
 ) -> Optional[List[Dict]]:
-    print(f"🎧 Генерация барабанных нот (basic) для: {song_path} (BPM: {bpm})")
+    if verbose:
+        print(f"🎧 Генерация барабанных нот (basic) для: {song_path} (BPM: {bpm})")
 
     if cancel_cb:
         cancel_cb()
@@ -50,8 +52,9 @@ def generate_drums_notes(
     if provided_genres is not None:
         unique_genres = [g for g in provided_genres if isinstance(g, str) and g.strip()]
         primary_genre = (primary_override or provided_primary_genre) or (unique_genres[0] if unique_genres else None)
-        print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
-        print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
+        if verbose:
+            print(f"[DrumGen-Basic] Используем переданные жанры: {unique_genres}")
+            print(f"[DrumGen-Basic] Primary genre: {primary_genre or 'не задан'}")
     else:
         if cancel_cb:
             cancel_cb()
@@ -84,11 +87,14 @@ def generate_drums_notes(
     from .genre_detector import get_genre_config
     if primary_genre:
         genre_params = get_genre_config(primary_genre)
-        print(f"[DrumGen-Basic] Применён стиль '{primary_genre}'")
+        if verbose:
+            print(f"[DrumGen-Basic] Применён стиль '{primary_genre}'")
     else:
         genre_params = get_genre_config("groove")
-        print("[DrumGen-Basic] Не указан primary_genre — используем 'groove'")
-    print(f"[DrumGen-Basic] Жанр для генерации: {primary_genre or 'groove'}")
+        if verbose:
+            print("[DrumGen-Basic] Не указан primary_genre — используем 'groove'")
+    if verbose:
+        print(f"[DrumGen-Basic] Жанр для генерации: {primary_genre or 'groove'}")
 
     if provided_genres is not None:
         from .audio_analysis import extract_drum_hits
@@ -109,7 +115,8 @@ def generate_drums_notes(
             snare_times = drum_hits["snare_times"]
             dominant_onsets = drum_hits.get("dominant_onsets", [])
         except Exception as e:
-            print(f"[DrumGen-Basic] Ошибка извлечения хитов: {e}")
+            if verbose:
+                print(f"[DrumGen-Basic] Ошибка извлечения хитов: {e}")
             analysis = analyze_audio(
                 song_path=song_path,
                 bpm=bpm,
@@ -138,7 +145,8 @@ def generate_drums_notes(
 
     if 'sync_tolerance_multiplier' in genre_params:
         sync_tolerance *= genre_params['sync_tolerance_multiplier']
-        print(f"[DrumGen-Basic] Sync tolerance изменён: {sync_tolerance:.2f}")
+        if verbose:
+            print(f"[DrumGen-Basic] Sync tolerance изменён: {sync_tolerance:.2f}")
 
     drum_start_window = genre_params.get('drum_start_window', 4.0)
     drum_density_threshold = genre_params.get('drum_density_threshold', 0.5)
@@ -161,7 +169,8 @@ def generate_drums_notes(
     synced_events = sync_to_beats(grooved_events, beats, sync_tolerance) if use_grid_sync else grooved_events
 
     if len(synced_events) == 0:
-        print("[DrumGen-Basic] Нет нот после синхронизации — используем грув-паттерн")
+        if verbose:
+            print("[DrumGen-Basic] Нет нот после синхронизации — используем грув-паттерн")
         synced_events = grooved_events
 
     if status_cb:
@@ -172,11 +181,12 @@ def generate_drums_notes(
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)
-    print(f"✅ Сгенерировано {drum_count} барабанных нот (basic)")
-    print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
-    print(f"   - BPM: {bpm}, Style: {pattern_style}")
+    if verbose:
+        print(f"✅ Сгенерировано {drum_count} барабанных нот (basic)")
+        print(f"   - Жанры: {unique_genres if unique_genres else 'не определены'}")
+        print(f"   - BPM: {bpm}, Style: {pattern_style}")
 
-    if drum_count == 0:
+    if drum_count == 0 and verbose:
         print("[DrumGen-Basic] ВНИМАНИЕ: Сгенерировано 0 нот!")
 
     return notes
