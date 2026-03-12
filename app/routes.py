@@ -376,7 +376,7 @@ def generate_drums():
             'primary_genre': final_primary,
             'genres_source': genres_source
         }
-        print(f"[DrumGen] Successfully generated {len(notes)} notes ({drum_mode})")
+        print(f"[DrumGen] Successfully generated {len(chosen_notes)} notes ({drum_mode})")
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
         print(f"   - Источник жанров: {genres_source} | primary: {final_primary or 'не задан'}")
         _report_status(task_id, "Формирование ответа...")
