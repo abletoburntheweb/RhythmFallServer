@@ -314,31 +314,39 @@ def generate_drums():
         notes_variants = {}
         lanes_set = [3, 4, 5]
         for L in lanes_set:
-            _report_status(task_id, f"Генерация нот для {L} линий…")
-            variant_notes = generator.generate_drums_notes(
-                temp_path,
-                bpm,
-                lanes=L,
-                sync_tolerance=sync_tolerance,
-                use_madmom_beats=True,
-                use_stems=use_stems,
-                track_info=track_info,
-                auto_identify_track=False,
-                use_filename_for_genres=False,
-                provided_genres=provided_genres,
-                provided_primary_genre=effective_primary,
-                status_cb=lambda s: _report_status(task_id, s),
-                cancel_cb=lambda: _check_cancel(task_id)
-            )
-            _check_cancel(task_id)
-            if not variant_notes:
-                return jsonify({"error": f"No drum notes generated for lanes={L}"}), 500
-            notes_variants[str(L)] = variant_notes
+            try:
+                _report_status(task_id, f"Генерация нот для {L} линий…")
+                variant_notes = generator.generate_drums_notes(
+                    temp_path,
+                    bpm,
+                    lanes=L,
+                    sync_tolerance=sync_tolerance,
+                    use_madmom_beats=True,
+                    use_stems=use_stems,
+                    track_info=track_info,
+                    auto_identify_track=False,
+                    use_filename_for_genres=False,
+                    provided_genres=provided_genres,
+                    provided_primary_genre=effective_primary,
+                    status_cb=lambda s: _report_status(task_id, s),
+                    cancel_cb=lambda: _check_cancel(task_id)
+                )
+                _check_cancel(task_id)
+                if variant_notes and len(variant_notes) > 0:
+                    notes_variants[str(L)] = variant_notes
+                else:
+                    print(f"[DrumGen] Пустые ноты для {L} линий — пропускаем вариант")
+            except Exception as e:
+                print(f"[DrumGen] Ошибка генерации для {L} линий: {e}")
+                continue
 
+        if not notes_variants:
+            return jsonify({"error": "No drum notes generated for any lanes"}), 500
         chosen_notes = notes_variants.get(str(lanes)) or notes_variants.get("4") or next(iter(notes_variants.values()))
 
         _report_status(task_id, "Сохранение нот...")
         _check_cancel(task_id)
+        # Сохраняем выбранный набор (для обратной совместимости внутренней диагностики сервера)
         generator.save_drums_notes(chosen_notes, temp_path, mode=drum_mode)
         _check_cancel(task_id)
 

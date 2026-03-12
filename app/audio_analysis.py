@@ -463,6 +463,8 @@ def analyze_audio(
 def quantize_events_to_grid(events: List[float], bpm: float, tolerance: float = 0.1, subdivisions: List[int] = [4, 8, 16]) -> List[float]:
     from bisect import bisect_left
 
+    if not events or len(events) == 0:
+        return []
     beat_interval = 60.0 / bpm
     grids = []
     for div in subdivisions:
