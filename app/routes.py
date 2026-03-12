@@ -333,7 +333,28 @@ def generate_drums():
                 )
                 _check_cancel(task_id)
                 if variant_notes and len(variant_notes) > 0:
-                    notes_variants[str(L)] = variant_notes
+                    try:
+                        max_lane = max(int(n.get("lane", 0)) for n in variant_notes if isinstance(n, dict))
+                    except ValueError:
+                        max_lane = 0
+                    if max_lane + 1 != L and max_lane >= 0:
+                        remapped = []
+                        denom = max(1, max_lane)
+                        for n in variant_notes:
+                            if not isinstance(n, dict):
+                                continue
+                            old_lane = int(n.get("lane", 0))
+                            new_lane = int(round(old_lane * (L - 1) / float(denom)))
+                            if new_lane < 0:
+                                new_lane = 0
+                            elif new_lane >= L:
+                                new_lane = L - 1
+                            m = dict(n)
+                            m["lane"] = new_lane
+                            remapped.append(m)
+                        notes_variants[str(L)] = remapped
+                    else:
+                        notes_variants[str(L)] = variant_notes
                 else:
                     print(f"[DrumGen] Пустые ноты для {L} линий — пропускаем вариант")
             except Exception as e:
@@ -346,7 +367,6 @@ def generate_drums():
 
         _report_status(task_id, "Сохранение нот...")
         _check_cancel(task_id)
-        # Сохраняем выбранный набор (для обратной совместимости внутренней диагностики сервера)
         generator.save_drums_notes(chosen_notes, temp_path, mode=drum_mode)
         _check_cancel(task_id)
 
