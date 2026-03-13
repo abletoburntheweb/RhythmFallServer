@@ -18,6 +18,13 @@ def _coefficient_of_variation(values: List[float]) -> float:
         return 0.0
     return float(np.std(values) / mean_val)
 
+def _events_density(events: List[Dict], bpm: float) -> float:
+    if not events or bpm <= 0:
+        return 0.0
+    beat_interval = 60.0 / bpm
+    duration = max(beat_interval, events[-1]["time"] - events[0]["time"])
+    total_beats = duration / beat_interval
+    return float(len(events) / max(1.0, total_beats))
 
     if not events or bpm <= 0:
         return 0.0
@@ -62,8 +69,10 @@ def generate_drums_notes(
     if verbose:
         print(f"🎮 Генерация барабанных нот (enhanced) для: {song_path} (BPM: {bpm})")
 
-    if cancel_cb:
-        cancel_cb()
+    if cancel_cb and cancel_cb():
+        return None
+    if status_cb:
+        status_cb("Разделение на стемы...")
 
     analysis = analyze_audio(
         song_path=song_path,
@@ -75,8 +84,8 @@ def generate_drums_notes(
         stem_type="drums",
         cancel_cb=cancel_cb
     )
-    if cancel_cb:
-        cancel_cb()
+    if cancel_cb and cancel_cb():
+        return None
 
     if not analysis or "bpm" not in analysis:
         if verbose:
@@ -112,6 +121,8 @@ def generate_drums_notes(
     if isinstance(provided_primary_genre, str) and provided_primary_genre.strip():
         track_info["primary_genre"] = provided_primary_genre.strip()
 
+    if status_cb:
+        status_cb("Детекция ударных...")
     basic_notes = drum_generator_basic.generate_drums_notes(
         song_path,
         bpm,
@@ -176,6 +187,8 @@ def generate_drums_notes(
     caps = hard_caps.get(genre_label, hard_caps["default"])
     total_cap = int(len(base_times) * caps["cap_ratio"]) if base_times else 0
     added_total = 0
+    if verbose:
+        print(f"[DrumGen-Enhanced] Базовых нот: {len(base_times)} | cap={total_cap}")
     for (m_start, m_end) in bounds:
         base_in_measure = [t for t in base_times if m_start <= t < m_end]
         energy = (
@@ -244,8 +257,8 @@ def generate_drums_notes(
     all_events = [{"type": NoteType.DRUM, "time": t, "source": ("enhanced" if t in added else "basic")} for t in all_times]
     if status_cb:
         status_cb("Назначение линий...")
-    if cancel_cb:
-        cancel_cb()
+    if cancel_cb and cancel_cb():
+        return None
     notes = assign_lanes_to_notes(all_events, lanes=lanes, song_offset=0.0)
 
     drum_count = len(notes)

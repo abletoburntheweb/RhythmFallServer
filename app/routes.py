@@ -293,6 +293,7 @@ def generate_drums():
         }
         _check_cancel(task_id)
 
+        _report_status(task_id, "Идентификация трека...")
         _report_status(task_id, "Определение жанров...")
         if progress_delay_seconds > 0:
             time.sleep(progress_delay_seconds)
@@ -313,9 +314,10 @@ def generate_drums():
         _check_cancel(task_id)
         notes_variants = {}
         lanes_set = [3, 4, 5]
+        _report_status(task_id, "Детекция ударных...")
         for L in lanes_set:
             try:
-                _report_status(task_id, f"Генерация нот для {L} линий…")
+                _report_status(task_id, "Назначение линий...")
                 variant_notes = generator.generate_drums_notes(
                     temp_path,
                     bpm,
