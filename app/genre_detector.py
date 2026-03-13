@@ -250,7 +250,7 @@ class MultiSourceGenreDetector:
         else:
             audio_labels = []
         results['audio_discogs400'] = audio_labels
-        unique_genres = list(set(audio_labels))
+        unique_genres = list(dict.fromkeys(audio_labels))
         print(f"📊 Итоговые жанры: {unique_genres}")
         if audio_labels:
             print(f"📊 Жанры по источникам:")

@@ -406,7 +406,12 @@ def analyze_audio(
         if genres:
             all_genres.extend(genres)
 
-    unique_genres = list(set(g for g in all_genres if g and g.lower() != 'unknown'))
+    unique_genres = []
+    for g in all_genres:
+        if not g or g.lower() == 'unknown':
+            continue
+        if g not in unique_genres:
+            unique_genres.append(g)
     genre_params = get_genre_params(unique_genres, GENRE_CONFIGS, GENRE_ALIAS_MAP)
 
     if bpm is None or bpm <= 0:
