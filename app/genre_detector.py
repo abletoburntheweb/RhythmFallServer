@@ -74,11 +74,11 @@ def is_discogs400_available(model_dir: Optional[Path] = None) -> bool:
 def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Path] = None) -> List[Tuple[str, float]]:
     md = Path(model_dir) if model_dir else _default_model_dir()
     if not is_discogs400_available(md):
-        print("[Discogs400] Model not available")
+        print("[Discogs400] Модель недоступна")
         return []
     labels = _load_labels(md)
     if not labels:
-        print("[Discogs400] Labels not loaded")
+        print("[Discogs400] Метки не загружены")
         return []
     head_pb = md / f"{md.name}.pb"
     head_onnx = md / f"{md.name}.onnx"
@@ -87,12 +87,12 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
         loader = es.MonoLoader(filename=audio_path, sampleRate=16000)
         audio = loader()
         if emb_pb is None or (not head_pb.exists() and not head_onnx.exists()):
-            print("[Discogs400] Missing head or embedder graph")
+            print("[Discogs400] Отсутствует граф классификатора или эмбеддера")
             return []
         try:
             embedder = es.TensorflowPredictMAEST(graphFilename=str(emb_pb))
         except Exception:
-            print("[Discogs400] Failed to init MAEST embedder")
+            print("[Discogs400] Не удалось инициализировать MAEST-эмбеддер")
             return []
         try:
             head = None
@@ -121,11 +121,11 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
         try:
             emb = embedder(audio)
         except Exception:
-            print("[Discogs400] Embedding extraction failed")
+            print("[Discogs400] Ошибка извлечения эмбеддинга")
             return []
         emb_arr = np.asarray(emb, dtype=np.float32)
         try:
-            print(f"[Discogs400] Raw embedding shape: {emb_arr.shape}")
+            print(f"[Discogs400] Размер сырого эмбеддинга: {emb_arr.shape}")
         except Exception:
             pass
         if emb_arr.shape[-1] == 400:
@@ -144,10 +144,10 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
                     if 0 <= int(i) < len(labels):
                         out2.append((labels[int(i)], float(y[int(i)])))
                 if not out2:
-                    print("[Discogs400] No top-k predictions produced (direct)")
+                    print("[Discogs400] Не удалось получить top-k предсказания (прямой путь)")
                 return out2
             except Exception:
-                print("[Discogs400] Direct predictions path failed")
+                print("[Discogs400] Ошибка прямого пути предсказаний")
                 return []
         if emb_arr.ndim == 2:
             emb_arr = np.expand_dims(emb_arr, 0)
@@ -161,10 +161,10 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
                 pad_after = 560 - T - pad_before
                 emb_arr = np.pad(emb_arr, ((0, 0), (pad_before, pad_after), (0, 0)), mode='constant')
         if emb_arr.shape[2] != 768:
-            print(f"[Discogs400] Unexpected embedding dim: {emb_arr.shape}. Expected (*, 560, 768)")
+            print(f"[Discogs400] Неожиданная размерность эмбеддинга: {emb_arr.shape}. Ожидалось (*, 560, 768)")
             return []
         try:
-            print(f"[Discogs400] Prepared embedding shape: {emb_arr.shape}")
+            print(f"[Discogs400] Подготовленный эмбеддинг: {emb_arr.shape}")
         except Exception:
             pass
         pred = None
@@ -172,7 +172,7 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
             try:
                 pred = head(emb_arr)
             except Exception:
-                print("[Discogs400] Head inference failed")
+                print("[Discogs400] Ошибка инференса классификатора")
                 pred = None
         if pred is None and ORT_AVAILABLE:
             if head_onnx.exists():
@@ -193,10 +193,10 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
                         elif isinstance(outputs, list) and len(outputs) >= 1:
                             pred = outputs[0]
                 except Exception as e:
-                    print(f"[Discogs400] ONNX head inference failed: {e}")
+                    print(f"[Discogs400] Ошибка ONNX-инференса классификатора: {e}")
                     pred = None
         if pred is None:
-            print("[Discogs400] Failed to init head graph")
+            print("[Discogs400] Не удалось инициализировать граф классификатора")
             return []
         if isinstance(pred, list) or isinstance(pred, tuple):
             if len(pred) >= 2:
@@ -218,10 +218,10 @@ def classify_discogs400(audio_path: str, top_k: int = 5, model_dir: Optional[Pat
             if 0 <= int(i) < len(labels):
                 out.append((labels[int(i)], float(scores[int(i)])))
         if not out:
-            print("[Discogs400] No top-k predictions produced")
+            print("[Discogs400] Не удалось получить top-k предсказания")
         return out
     except Exception:
-        print("[Discogs400] Unexpected error during classification")
+        print("[Discogs400] Непредвиденная ошибка при классификации")
         return []
 class MultiSourceGenreDetector:
     def __init__(self, config_path: str = None):
@@ -242,7 +242,7 @@ class MultiSourceGenreDetector:
             print(f"[GenreDetector] Ошибка парсинга JSON в {self.config_path}: {e}. Используются значения по умолчанию.")
             return {}
     def detect_all_genres(self, artist: str, title: str, audio_path: Optional[str] = None) -> Dict[str, List[str]]:
-        print(f"🔍 Поиск жанров для: {artist} - {title}")
+        print(f"[GenreDetector] Поиск жанров для: {artist} - {title}")
         results = {}
         if audio_path and is_discogs400_available():
             audio_preds = classify_discogs400(audio_path, top_k=5)
@@ -251,10 +251,10 @@ class MultiSourceGenreDetector:
             audio_labels = []
         results['audio_discogs400'] = audio_labels
         unique_genres = list(dict.fromkeys(audio_labels))
-        print(f"📊 Итоговые жанры: {unique_genres}")
+        print(f"[GenreDetector] Итоговые жанры: {unique_genres}")
         if audio_labels:
-            print(f"📊 Жанры по источникам:")
-            print(f"   Audio_discogs400: {audio_labels}")
+            print("[GenreDetector] Жанры по источникам:")
+            print(f"   audio_discogs400: {audio_labels}")
         return {'all_genres': unique_genres, 'by_source': results}
 def detect_genres(artist: str, title: str, audio_path: Optional[str] = None) -> List[str]:
     detector = MultiSourceGenreDetector()

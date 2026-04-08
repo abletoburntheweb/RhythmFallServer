@@ -43,4 +43,7 @@ private.key
 mdx_model_data.json
 vr_model_data.json
 download_checks.json
-models/
+models/**
+!models/
+!models/.gitkeep
+

@@ -170,8 +170,8 @@ def calculate_bpm(file_path, save_cache=True, cancel_cb: Optional[Callable[[], N
                 cancel_cb()
             y, sr = librosa.load(file_path, sr=22050)
         except Exception as load_error:
-            print(f"[ERROR] Failed to load audio file {file_path}: {load_error}")
-            return {"file": fname, "bpm": None, "error": f"Failed to load audio file: {str(load_error)}"}
+            print(f"[Ошибка] Не удалось загрузить аудиофайл {file_path}: {load_error}")
+            return {"file": fname, "bpm": None, "error": f"Не удалось загрузить аудиофайл: {str(load_error)}"}
 
         if cancel_cb:
             cancel_cb()
@@ -307,7 +307,7 @@ def calculate_bpm(file_path, save_cache=True, cancel_cb: Optional[Callable[[], N
             spectral_rolloff = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))
             zero_crossing_rate = np.mean(librosa.feature.zero_crossing_rate(y))
         except Exception as e:
-            print(f"[WARNING] Feature calculation failed, using basic BPM: {e}")
+            print(f"[Предупреждение] Не удалось вычислить признаки, используем базовый BPM: {e}")
         else:
             if zero_crossing_rate > 0.1:
                 if 160 <= bpm <= 220:

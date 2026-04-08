@@ -81,7 +81,7 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
     if cancel_cb:
         cancel_cb()
     if output_path.exists():
-        print(f"[AudioAnalysis] Использую кешированный stem: {output_path.name}")
+        print(f"[AudioAnalysis] Использую кешированный стем: {output_path.name}")
         return str(output_path)
 
     if cancel_cb:
@@ -99,12 +99,12 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
     if not preferred and candidates:
         preferred = candidates[0]
     if preferred:
-        print(f"[AudioAnalysis] Найден локальный stem: {preferred.name} → {output_path.name}")
+        print(f"[AudioAnalysis] Найден локальный стем: {preferred.name} → {output_path.name}")
         shutil.copy2(preferred, output_path)
         return str(output_path)
 
     if not AUDIO_SEPARATOR_AVAILABLE:
-        print("[AudioAnalysis] Separator недоступен — используем оригинальный файл")
+        print("[AudioAnalysis] Сепаратор недоступен — используем исходный файл")
         return str(song_path)
 
     def _try_separate(select_model: Optional[str] = None) -> Optional[str]:
@@ -136,9 +136,9 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                         break
             if not target_model and available_models:
                 target_model = available_models[0]
-                print(f"[AudioAnalysis] Fallback модель: {target_model}")
+                print(f"[AudioAnalysis] Резервная модель: {target_model}")
             if not target_model:
-                print("[AudioAnalysis] Нет доступных моделей в separator — пропускаем разделение")
+                print("[AudioAnalysis] В сепараторе нет доступных моделей — пропускаем разделение")
                 return None
             if cancel_cb:
                 cancel_cb()
@@ -210,7 +210,7 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
                 shutil.copy2(preferred_out, output_path)
                 try:
                     if Path(output_path).exists():
-                        print(f"[AudioAnalysis] Stem сохранён: {output_path.name}")
+                        print(f"[AudioAnalysis] Стем сохранён: {output_path.name}")
                 except Exception:
                     pass
                 for f in norm_files:
@@ -432,7 +432,7 @@ def analyze_audio(
         stem_path = separate_stems(str(original_file_path), song_folder, stem_type=stem_type, cancel_cb=cancel_cb)
         if stem_path != str(original_file_path):
             analysis_path = stem_path
-            print(f"[AudioAnalysis] Для анализа выбран stem: {Path(analysis_path).name}")
+            print(f"[AudioAnalysis] Для анализа выбран стем: {Path(analysis_path).name}")
         else:
             print("[AudioAnalysis] Stem не выбран — используем оригинальный аудиофайл")
 

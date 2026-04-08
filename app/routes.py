@@ -8,17 +8,17 @@ from pathlib import Path
 import shutil
 import re
 import app.bpm_analyzer as bpm_analyzer
-from . import drum_generator_basic
-from . import drum_generator_enhanced
+from . import drum_generator
+from .drum_utils import assign_lanes_to_notes
 
 try:
     from .genre_detector import detect_genres
 
     GENRE_DETECTION_AVAILABLE = True
-    print("[Routes] Genre detection доступен")
+    print("[Routes] Определение жанров доступно")
 except ImportError:
     GENRE_DETECTION_AVAILABLE = False
-    print("[Routes] Genre detection не установлен")
+    print("[Routes] Определение жанров недоступно")
 
 bp = Blueprint("main", __name__)
 
@@ -28,6 +28,30 @@ os.makedirs("songs", exist_ok=True)
 TASK_PROGRESS = {}
 TASK_CANCELLED = set()
 TASK_CONTEXT = {}
+DEBUG_HTTP = os.getenv("RF_DEBUG_HTTP", "0") == "1"
+DRUMGEN_VERBOSE = os.getenv("RF_VERBOSE_DRUMGEN", "0") == "1"
+
+
+def _debug_log(*args):
+    if DEBUG_HTTP:
+        print(*args)
+
+
+def _reroll_notes_to_lanes(notes: list, target_lanes: int) -> list:
+    if not notes:
+        return []
+    if target_lanes <= 1:
+        return [dict(n) for n in notes if isinstance(n, dict)]
+    stripped = []
+    for n in notes:
+        if not isinstance(n, dict):
+            continue
+        m = dict(n)
+        if "lane" in m:
+            m.pop("lane")
+        stripped.append(m)
+    return assign_lanes_to_notes(stripped, lanes=target_lanes, song_offset=0.0)
+
 
 def _extract_artist_title_from_filename(filename: str) -> tuple[str, str]:
     stem = Path(filename).stem
@@ -85,15 +109,15 @@ def _cleanup_task(task_id: str):
     if temp_path and os.path.exists(temp_path):
         try:
             os.remove(temp_path)
-            print(f"[CLEANUP] Removed temp file: {temp_path}")
+            print(f"[Очистка] Удалён временный файл: {temp_path}")
         except Exception as e:
-            print(f"[WARNING] Failed to remove temp file: {e}")
+            print(f"[Предупреждение] Не удалось удалить временный файл: {e}")
     if song_folder and os.path.isdir(song_folder):
         try:
             shutil.rmtree(song_folder, ignore_errors=True)
-            print(f"[CLEANUP] Removed song folder: {song_folder}")
+            print(f"[Очистка] Удалена папка песни: {song_folder}")
         except Exception as e:
-            print(f"[WARNING] Failed to remove song folder: {e}")
+            print(f"[Предупреждение] Не удалось удалить папку песни: {e}")
     TASK_CONTEXT.pop(task_id, None)
     TASK_CANCELLED.discard(task_id)
 
@@ -140,9 +164,9 @@ def home():
 
 @bp.route("/analyze_bpm", methods=["POST"])
 def analyze_bpm():
-    print("DEBUG: Content-Type:", request.content_type)
-    print("DEBUG: Files keys:", list(request.files.keys()))
-    print("DEBUG: Form keys:", list(request.form.keys()))
+    _debug_log("DEBUG /analyze_bpm Content-Type:", request.content_type)
+    _debug_log("DEBUG /analyze_bpm Files keys:", list(request.files.keys()))
+    _debug_log("DEBUG /analyze_bpm Form keys:", list(request.form.keys()))
 
     temp_path = None
     try:
@@ -154,22 +178,22 @@ def analyze_bpm():
             safe_filename = _normalize_filename(file.filename, default_ext=".mp3")
             temp_path = os.path.join("temp_uploads", f"bpm_{int(time.time())}_{safe_filename}")
             file.save(temp_path)
-            print(f"[INFO] File received via multipart: {temp_path}")
+            print(f"[BPM] Файл получен через multipart: {temp_path}")
 
         elif request.data:
             temp_path = os.path.join("temp_uploads", f"bpm_{int(time.time())}_uploaded_audio.mp3")
             with open(temp_path, "wb") as f:
                 f.write(request.data)
-            print(f"[INFO] Raw audio data saved: {temp_path}")
+            print(f"[BPM] Сохранены сырые аудиоданные: {temp_path}")
 
         else:
-            print("[ERROR] No audio data found in request")
+            print("[Ошибка] В запросе не найдены аудиоданные")
             return jsonify({"error": "No audio file provided in the request"}), 400
 
         result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False)
 
         if result.get("bpm") is not None:
-            print(f"[SUCCESS] BPM calculated: {result['bpm']}")
+            print(f"[BPM] Успешно рассчитан BPM: {result['bpm']}")
             return jsonify({
                 "bpm": result["bpm"],
                 "filename": os.path.basename(temp_path),
@@ -177,14 +201,14 @@ def analyze_bpm():
             })
         elif "error" in result:
             error_msg = result.get("error", "Unknown error during BPM analysis")
-            print(f"[ERROR] BPM analysis failed: {error_msg}")
+            print(f"[Ошибка] Анализ BPM завершился с ошибкой: {error_msg}")
             return jsonify({"error": error_msg}), 500
         else:
-            print("[ERROR] BPM analysis returned unexpected result format")
+            print("[Ошибка] Анализ BPM вернул неожиданный формат результата")
             return jsonify({"error": "BPM analysis returned unexpected result format"}), 500
 
     except Exception as e:
-        print(f"[EXCEPTION] {e}")
+        print(f"[Исключение] {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -192,15 +216,15 @@ def analyze_bpm():
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                print(f"[CLEANUP] Temporary file removed: {temp_path}")
+                print(f"[Очистка] Удалён временный файл: {temp_path}")
             except Exception as e:
-                print(f"[WARNING] Failed to remove temp file: {e}")
+                print(f"[Предупреждение] Не удалось удалить временный файл: {e}")
 
 
 @bp.route("/generate_drums", methods=["POST"])
 def generate_drums():
-    print("DEBUG: /generate_drums request received")
-    print(f"DEBUG: Content-Type: {request.content_type}")
+    _debug_log("DEBUG /generate_drums: запрос получен")
+    _debug_log(f"DEBUG /generate_drums Content-Type: {request.content_type}")
 
     temp_path = None
     task_id = request.headers.get("X-Task-Id", "")
@@ -231,39 +255,75 @@ def generate_drums():
         genres = metadata.get("genres")
         primary_genre = metadata.get("primary_genre")
         use_stems = bool(metadata.get("use_stems", True))
+        fill    = metadata.get("fill")
+        groove  = metadata.get("groove")
+        density = metadata.get("density")
+        grid_snap_strength = metadata.get("grid_snap_strength")
+        accent_strong_beats = metadata.get("accent_strong_beats")
+        genre_template_strength = metadata.get("genre_template_strength")
+        if fill is not None:
+            try:
+                fill = int(fill)
+                fill = max(0, min(100, fill))
+            except (ValueError, TypeError):
+                fill = None
+        if groove is not None:
+            try:
+                groove = int(groove)
+                groove = max(0, min(100, groove))
+            except (ValueError, TypeError):
+                groove = None
+        if density is not None:
+            try:
+                density = int(density)
+                density = max(0, min(100, density))
+            except (ValueError, TypeError):
+                density = None
+        if grid_snap_strength is not None:
+            try:
+                grid_snap_strength = int(grid_snap_strength)
+                grid_snap_strength = max(0, min(100, grid_snap_strength))
+            except (ValueError, TypeError):
+                grid_snap_strength = None
+        if accent_strong_beats is not None:
+            accent_strong_beats = bool(accent_strong_beats)
+        if genre_template_strength is not None:
+            try:
+                genre_template_strength = int(genre_template_strength)
+                genre_template_strength = max(0, min(100, genre_template_strength))
+            except (ValueError, TypeError):
+                genre_template_strength = None
 
+        valid_modes = {"minimal", "basic", "enhanced", "natural", "custom"}
         if not isinstance(lanes, int) or not (1 <= lanes <= 8):
             return jsonify({"error": "Invalid 'lanes': must be integer 1-8"}), 400
         if not isinstance(sync_tolerance, (int, float)) or not (0.01 <= sync_tolerance <= 1.0):
             return jsonify({"error": "Invalid 'sync_tolerance': must be float 0.01-1.0"}), 400
-        if generation_mode not in ["basic", "enhanced"]:
-            return jsonify({"error": "'generation_mode' must be 'basic' or 'enhanced'"}), 400
+        if generation_mode not in valid_modes:
+            return jsonify({"error": f"'generation_mode' must be one of {sorted(valid_modes)}"}), 400
         if genres is not None and not isinstance(genres, list):
             return jsonify({"error": "'genres' must be a list of strings"}), 400
         if primary_genre is not None and not isinstance(primary_genre, str):
             return jsonify({"error": "'primary_genre' must be a string"}), 400
 
-        drum_mode = generation_mode
-        generator = drum_generator_basic if drum_mode == "basic" else drum_generator_enhanced
-
         safe_filename = _normalize_filename(original_filename, default_ext=".mp3")
 
         temp_path = os.path.join("temp_uploads", safe_filename)
         audio_file.save(temp_path)
-        print(f"[DrumGen] Audio saved: {temp_path}")
-        print(f"[DrumGen] Original filename (Unicode-safe): {original_filename}")
+        print(f"[DrumGen] Аудио сохранено: {temp_path}")
+        print(f"[DrumGen] Исходное имя файла (Unicode-safe): {original_filename}")
         _register_task_context(task_id, temp_path)
         _check_cancel(task_id)
 
         if bpm is None:
-            print("[DrumGen] BPM not provided, calculating...")
+            print("[DrumGen] BPM не передан, выполняется расчёт...")
             _check_cancel(task_id)
             bpm_result = bpm_analyzer.calculate_bpm(temp_path, save_cache=False, cancel_cb=lambda: _check_cancel(task_id))
             if bpm_result.get("bpm") is None:
                 error_msg = bpm_result.get("error", "Failed to calculate BPM")
                 return jsonify({"error": f"Could not determine BPM: {error_msg}"}), 500
             bpm = bpm_result["bpm"]
-            print(f"[DrumGen] Calculated BPM: {bpm}")
+            print(f"[DrumGen] Рассчитанный BPM: {bpm}")
         else:
             try:
                 bpm = float(bpm)
@@ -297,8 +357,9 @@ def generate_drums():
         _report_status(task_id, "Определение жанров...")
         if progress_delay_seconds > 0:
             time.sleep(progress_delay_seconds)
-        print(f"[DrumGen] Generating notes | BPM: {bpm}, Lanes: {lanes}, Mode: {drum_mode}")
-        print(f"[DrumGen] Use stems: {'yes' if use_stems else 'no'}")
+        print(f"[DrumGen] Генерация нот | BPM: {bpm}, Линии: {lanes}, Режим: {generation_mode}")
+        print(f"[DrumGen] Использовать стемы: {'да' if use_stems else 'нет'}")
+        print(f"[DrumGen] Параметры | fill={fill} groove={groove} density={density} grid_snap_strength={grid_snap_strength} accent_strong_beats={accent_strong_beats} genre_template_strength={genre_template_strength}")
         effective_primary = normalized_primary_genre
         if effective_primary is None and provided_genres is None and GENRE_DETECTION_AVAILABLE:
             try:
@@ -306,63 +367,55 @@ def generate_drums():
                 track_info['genres'] = detected
                 if detected:
                     effective_primary = detected[0]
-                print(f"[DrumGen] Audio genres: {detected}")
+                print(f"[DrumGen] Жанры по аудио: {detected}")
             except Exception as e:
-                print(f"[DrumGen] Genre detection failed: {e}")
+                print(f"[DrumGen] Ошибка определения жанров: {e}")
+        if provided_genres is not None:
+            track_info["genres"] = list(provided_genres)
+        if effective_primary is not None:
+            track_info["primary_genre"] = effective_primary
         print(f"[DrumGen] Жанр для генерации: {effective_primary or 'groove'}")
         _report_status(task_id, "Разделение на стемы...")
         _check_cancel(task_id)
         notes_variants = {}
         lanes_set = [3, 4, 5]
         _report_status(task_id, "Детекция ударных...")
+        print(f"[DrumGen] Вариант линий старт: {lanes} (первичная генерация)")
+        primary_notes = drum_generator.generate_drums_notes(
+            temp_path,
+            bpm,
+            lanes=lanes,
+            sync_tolerance=sync_tolerance,
+            use_madmom_beats=True,
+            use_stems=use_stems,
+            generation_mode=generation_mode,
+            fill=fill,
+            groove=groove,
+            density=density,
+            grid_snap_strength=grid_snap_strength,
+            accent_strong_beats=accent_strong_beats,
+            genre_template_strength=genre_template_strength,
+            track_info=track_info,
+            auto_identify_track=False,
+            use_filename_for_genres=False,
+            provided_genres=provided_genres,
+            provided_primary_genre=effective_primary,
+            verbose=DRUMGEN_VERBOSE,
+            status_cb=lambda s: _report_status(task_id, s),
+            cancel_cb=lambda: _check_cancel(task_id)
+        )
+        _check_cancel(task_id)
+        if not primary_notes or len(primary_notes) == 0:
+            return jsonify({"error": f"No drum notes generated for lanes={lanes}"}), 500
+        notes_variants[str(lanes)] = primary_notes
+        print(f"[DrumGen] Вариант линий готов: {lanes}, нот={len(primary_notes)}")
+
         for L in lanes_set:
-            try:
-                _report_status(task_id, "Назначение линий...")
-                variant_notes = generator.generate_drums_notes(
-                    temp_path,
-                    bpm,
-                    lanes=L,
-                    sync_tolerance=sync_tolerance,
-                    use_madmom_beats=True,
-                    use_stems=use_stems,
-                    track_info=track_info,
-                    auto_identify_track=False,
-                    use_filename_for_genres=False,
-                    provided_genres=provided_genres,
-                    provided_primary_genre=effective_primary,
-                    verbose=(L == lanes),
-                    status_cb=lambda s: _report_status(task_id, s),
-                    cancel_cb=lambda: _check_cancel(task_id)
-                )
-                _check_cancel(task_id)
-                if variant_notes and len(variant_notes) > 0:
-                    try:
-                        max_lane = max(int(n.get("lane", 0)) for n in variant_notes if isinstance(n, dict))
-                    except ValueError:
-                        max_lane = 0
-                    if max_lane + 1 != L and max_lane >= 0:
-                        remapped = []
-                        denom = max(1, max_lane)
-                        for n in variant_notes:
-                            if not isinstance(n, dict):
-                                continue
-                            old_lane = int(n.get("lane", 0))
-                            new_lane = int(round(old_lane * (L - 1) / float(denom)))
-                            if new_lane < 0:
-                                new_lane = 0
-                            elif new_lane >= L:
-                                new_lane = L - 1
-                            m = dict(n)
-                            m["lane"] = new_lane
-                            remapped.append(m)
-                        notes_variants[str(L)] = remapped
-                    else:
-                        notes_variants[str(L)] = variant_notes
-                else:
-                    print(f"[DrumGen] Пустые ноты для {L} линий — пропускаем вариант")
-            except Exception as e:
-                print(f"[DrumGen] Ошибка генерации для {L} линий: {e}")
+            if L == lanes:
                 continue
+            rerolled_notes = _reroll_notes_to_lanes(primary_notes, L)
+            notes_variants[str(L)] = rerolled_notes
+            print(f"[DrumGen] Вариант линий перераспределён: {L}, нот={len(rerolled_notes)}")
 
         if not notes_variants:
             return jsonify({"error": "No drum notes generated for any lanes"}), 500
@@ -370,7 +423,7 @@ def generate_drums():
 
         _report_status(task_id, "Сохранение нот...")
         _check_cancel(task_id)
-        generator.save_drums_notes(chosen_notes, temp_path, mode=drum_mode)
+        drum_generator.save_drums_notes(chosen_notes, temp_path, mode=generation_mode)
         _check_cancel(task_id)
 
         drum_count = len([n for n in chosen_notes if n.get("type") == "DrumNote"])
@@ -380,7 +433,7 @@ def generate_drums():
             "bpm": bpm,
             "lanes": lanes,
             "instrument_type": instrument_type,
-            "mode": drum_mode,
+            "mode": generation_mode,
             "statistics": {
                 "total_notes": len(chosen_notes),
                 "drum_notes": drum_count
@@ -399,7 +452,7 @@ def generate_drums():
             'primary_genre': final_primary,
             'genres_source': genres_source
         }
-        print(f"[DrumGen] Successfully generated {len(chosen_notes)} notes ({drum_mode})")
+        print(f"[DrumGen] Успешно сгенерировано {len(chosen_notes)} нот ({generation_mode})")
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
         print(f"   - Источник жанров: {genres_source} | primary: {final_primary or 'не задан'}")
         _report_status(task_id, "Формирование ответа...")
@@ -407,13 +460,13 @@ def generate_drums():
 
     except RuntimeError as e:
         if str(e) == "__CANCELLED__":
-            print(f"[DrumGen] Task cancelled: {task_id}")
+            print(f"[DrumGen] Задача отменена: {task_id}")
             _report_status(task_id, "Отменено пользователем")
             _cleanup_task(task_id)
             return jsonify({"status": "cancelled_by_user", "message": "Отменено пользователем", "task_id": task_id}), 200
         raise
     except Exception as e:
-        print(f"[DrumGen] Exception: {e}")
+        print(f"[DrumGen] Исключение: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -424,9 +477,9 @@ def generate_drums():
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                    print(f"[CLEANUP] Removed temp file: {temp_path}")
+                    print(f"[Очистка] Удалён временный файл: {temp_path}")
                 except Exception as e:
-                    print(f"[WARNING] Failed to remove temp file: {e}")
+                    print(f"[Предупреждение] Не удалось удалить временный файл: {e}")
 
 
 @bp.route("/debug_genres_audio", methods=["POST"])
@@ -504,7 +557,7 @@ def debug_genres_audio():
 
 @bp.route("/generate_notes", methods=["POST"])
 def generate_notes():
-    print("DEBUG: /generate_notes request received")
+    _debug_log("DEBUG /generate_notes: запрос получен")
 
     instrument_type = request.headers.get("X-Instrument", "drums")
 
@@ -545,7 +598,7 @@ def list_songs():
             "status": "success"
         })
     except Exception as e:
-        print(f"[ERROR] Failed to list songs: {e}")
+        print(f"[Ошибка] Не удалось получить список песен: {e}")
         return jsonify({"error": str(e)}), 500
 
 

@@ -20,20 +20,20 @@ def create_app():
         md_ok = bool(is_discogs400_available())
         if not md_ok:
             md = _default_model_dir()
-            print(f"[Startup] Genre model not available; expected at: {md}")
-            print("[Startup] Place models under 'models/' or set RF_DISCOGS400_DIR/RF_MAEST_EMBED_PB")
+            print(f"[Startup] Модель жанров недоступна; ожидается в: {md}")
+            print("[Startup] Положите модели в 'models/' или задайте RF_DISCOGS400_DIR/RF_MAEST_EMBED_PB")
         else:
-            print("[Startup] Genre model available")
+            print("[Startup] Модель жанров доступна")
     except Exception as e:
-        print(f"[Startup] Genre model check failed: {e}")
+        print(f"[Startup] Ошибка проверки модели жанров: {e}")
     try:
         from .bpm_analyzer import _tempcnn_model_path
         tp = _tempcnn_model_path()
         if tp:
-            print("[Startup] TempoCNN model found")
+            print("[Startup] Модель TempoCNN найдена")
         else:
-            print("[Startup] TempoCNN model not found; set RF_TEMPOCNN_DIR or place under 'models/'")
+            print("[Startup] Модель TempoCNN не найдена; задайте RF_TEMPOCNN_DIR или положите её в 'models/'")
     except Exception as e:
-        print(f"[Startup] Tempo model check failed: {e}")
+        print(f"[Startup] Ошибка проверки tempo-модели: {e}")
 
     return app
