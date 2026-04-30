@@ -130,6 +130,28 @@ def _cap_events_per_second(events: List[float], max_hits_per_second: int) -> Lis
     return kept
 
 
+def _effective_max_hits_per_second(preset: Dict, bpm: float) -> int:
+    configured = int(preset.get("max_hits_per_second", 0) or 0)
+    if configured <= 0:
+        return 0
+    if str(preset.get("mode", "")) != "basic":
+        return configured
+    sixteenth_rate = (4.0 * max(1.0, bpm)) / 60.0
+    adaptive_floor = int(round(sixteenth_rate * 0.85))
+    return max(configured, adaptive_floor)
+
+
+def _effective_max_notes_per_measure(preset: Dict, bpm: float) -> int:
+    configured = int(preset.get("max_notes_per_measure", 0) or 0)
+    if configured <= 0:
+        return 0
+    if str(preset.get("mode", "")) != "basic":
+        return configured
+    if bpm >= 170:
+        return max(configured, 10)
+    return configured
+
+
 def _cap_events_per_measure(
     events: List[float],
     beats: np.ndarray,
@@ -159,15 +181,666 @@ def _cap_events_per_measure(
     return capped
 
 
+def _cluster_hit_events(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+) -> List[float]:
+    if not events:
+        return events
+    cluster_window = float(preset.get("hit_cluster_window", 0.0) or 0.0)
+    if cluster_window <= 0:
+        return sorted(events)
+
+    beat_interval = 60.0 / max(1.0, bpm)
+    max_musical_window = beat_interval * 0.16
+    window = min(cluster_window, max_musical_window)
+
+    clusters: List[List[float]] = []
+    current: List[float] = []
+    for event in sorted(events):
+        if not current:
+            current = [event]
+            continue
+        if event - current[-1] <= window:
+            current.append(event)
+        else:
+            clusters.append(current)
+            current = [event]
+    if current:
+        clusters.append(current)
+
+    clustered: List[float] = []
+    for cluster in clusters:
+        if len(cluster) == 1:
+            clustered.append(cluster[0])
+            continue
+        if beats is not None and len(beats) > 0:
+            best = min(cluster, key=lambda t: float(np.min(np.abs(beats - t))))
+            clustered.append(best)
+        else:
+            clustered.append(cluster[0])
+    return sorted(clustered)
+
+
 def _apply_density_guardrails(
     events: List[float],
     beats: np.ndarray,
     bpm: float,
     preset: Dict,
 ) -> List[float]:
-    guarded = _cap_events_per_second(events, int(preset.get("max_hits_per_second", 0) or 0))
-    guarded = _cap_events_per_measure(guarded, beats, bpm, int(preset.get("max_notes_per_measure", 0) or 0))
+    guarded = _cap_events_per_second(events, _effective_max_hits_per_second(preset, bpm))
+    guarded = _cap_events_per_measure(guarded, beats, bpm, _effective_max_notes_per_measure(preset, bpm))
     return guarded
+
+
+def _split_core_and_extra_events(
+    events: List[float],
+    core_sources: List[float],
+    preset: Dict,
+) -> tuple[List[float], List[float]]:
+    if not events:
+        return [], []
+    if not bool(preset.get("preserve_core_hits", False)) or not core_sources:
+        return [], sorted(events)
+
+    tol = float(preset.get("core_hit_tolerance", 0.08) or 0.08)
+    core_sorted = sorted(core_sources)
+    core_events: List[float] = []
+    extra_events: List[float] = []
+    for event in sorted(events):
+        if _has_near(event, core_sorted, tol):
+            core_events.append(event)
+        else:
+            extra_events.append(event)
+    return core_events, extra_events
+
+
+def _apply_density_guardrails_preserving_core(
+    events: List[float],
+    core_sources: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+) -> List[float]:
+    core_events, extra_events = _split_core_and_extra_events(events, core_sources, preset)
+    if not core_events:
+        return _apply_density_guardrails(events, beats, bpm, preset)
+
+    kept = sorted(set(core_events))
+    for event in sorted(set(extra_events)):
+        if event in kept:
+            continue
+        candidate = sorted(kept + [event])
+        guarded = _apply_density_guardrails(candidate, beats, bpm, preset)
+        if event in guarded:
+            kept = candidate
+    return kept
+
+
+def _measure_position_buckets(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+) -> tuple[Dict[int, set], float, float]:
+    beat_interval = float(np.median(np.diff(beats))) if beats is not None and len(beats) >= 2 else 60.0 / max(1.0, bpm)
+    first_measure_start = float(beats[0]) if beats is not None and len(beats) > 0 else min(events)
+    measure_duration = beat_interval * 4
+    buckets: Dict[int, set] = {}
+    for event in sorted(events):
+        measure_idx = int(np.floor((event - first_measure_start) / measure_duration))
+        if measure_idx < 0:
+            continue
+        rel_beats = (event - (first_measure_start + measure_idx * measure_duration)) / beat_interval
+        if rel_beats < -0.1 or rel_beats >= 4.1:
+            continue
+        quantized = round(max(0.0, min(3.75, rel_beats)) * 4.0) / 4.0
+        buckets.setdefault(measure_idx, set()).add(quantized)
+    return buckets, first_measure_start, beat_interval
+
+
+def _complete_groove_from_neighbors(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+    verbose: bool,
+) -> List[float]:
+    if not bool(preset.get("groove_completion", False)) or not events:
+        return events
+    if beats is None or len(beats) < 8:
+        return events
+
+    radius = int(preset.get("groove_completion_radius", 4) or 4)
+    min_support = int(preset.get("groove_completion_min_support", 3) or 3)
+    max_add_per_measure = int(preset.get("groove_completion_max_add_per_measure", 1) or 1)
+    max_notes_per_measure = int(preset.get("max_notes_per_measure", 0) or 0)
+    if radius <= 0 or min_support <= 0 or max_add_per_measure <= 0:
+        return events
+
+    buckets, first_measure_start, beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return events
+
+    measure_duration = beat_interval * 4
+    completed = sorted(set(events))
+    added: List[float] = []
+    cluster_window = float(preset.get("hit_cluster_window", 0.0) or 0.0)
+    existing_tol = max(min(0.04, beat_interval * 0.12), min(cluster_window, beat_interval * 0.28))
+
+    for measure_idx in sorted(buckets.keys()):
+        current_positions = set(buckets.get(measure_idx, set()))
+        neighbor_counts: Dict[float, int] = {}
+        neighbor_sizes: List[int] = []
+        for other_idx in range(measure_idx - radius, measure_idx + radius + 1):
+            if other_idx == measure_idx or other_idx not in buckets:
+                continue
+            positions = buckets[other_idx]
+            neighbor_sizes.append(len(positions))
+            for pos in positions:
+                neighbor_counts[pos] = neighbor_counts.get(pos, 0) + 1
+        if not neighbor_counts or not neighbor_sizes:
+            continue
+
+        target_count = int(round(float(np.median(neighbor_sizes))))
+        if max_notes_per_measure > 0:
+            target_count = min(target_count, max_notes_per_measure)
+        room = max(0, target_count - len(current_positions))
+        if room <= 0:
+            continue
+        room = min(room, max_add_per_measure)
+
+        candidates = [
+            (pos, count)
+            for pos, count in neighbor_counts.items()
+            if count >= min_support and pos not in current_positions
+        ]
+        candidates.sort(key=lambda item: (-item[1], item[0]))
+
+        measure_start = first_measure_start + measure_idx * measure_duration
+        added_here = 0
+        for pos, _count in candidates:
+            if added_here >= room:
+                break
+            candidate_time = measure_start + pos * beat_interval
+            if candidate_time < 0:
+                continue
+            if _has_near(candidate_time, completed, existing_tol):
+                continue
+            completed.append(candidate_time)
+            added.append(candidate_time)
+            current_positions.add(pos)
+            added_here += 1
+
+    if verbose and added:
+        print(f"[DrumGen][этап] groove_completion=+{len(added)}")
+    return sorted(completed)
+
+
+def _apply_expected_groove_grid(
+    events: List[float],
+    candidate_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+    verbose: bool,
+) -> List[float]:
+    expected_groove = str(preset.get("expected_groove", "") or "")
+    if expected_groove != "halfbeat_drive" or not events:
+        return events
+    if beats is None or len(beats) < 8:
+        return events
+
+    buckets, first_measure_start, beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return events
+
+    expected_positions = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+    radius = int(preset.get("expected_groove_radius", 4) or 4)
+    min_support = int(preset.get("expected_groove_min_support", 4) or 4)
+    max_add_per_measure = int(preset.get("expected_groove_max_add_per_measure", 2) or 2)
+    max_notes_per_measure = int(preset.get("max_notes_per_measure", 0) or 0)
+    seek_window = 0.09
+    allow_grid_fallback = False
+    if radius <= 0 or min_support <= 0 or max_add_per_measure <= 0:
+        return events
+    if seek_window <= 0:
+        return events
+
+    cluster_window = float(preset.get("hit_cluster_window", 0.0) or 0.0)
+    existing_tol = max(min(0.04, beat_interval * 0.12), min(cluster_window, beat_interval * 0.28))
+    measure_duration = beat_interval * 4
+    completed = sorted(set(events))
+    candidate_pool = sorted(set(candidate_events or []))
+    added: List[float] = []
+    attempted = 0
+
+    for measure_idx in sorted(buckets.keys()):
+        current_positions = set(buckets.get(measure_idx, set()))
+        if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+            continue
+        support: Dict[float, int] = {}
+        for other_idx in range(measure_idx - radius, measure_idx + radius + 1):
+            if other_idx == measure_idx or other_idx not in buckets:
+                continue
+            positions = buckets[other_idx]
+            for pos in expected_positions:
+                if pos in positions:
+                    support[pos] = support.get(pos, 0) + 1
+        supported_positions = [pos for pos in expected_positions if support.get(pos, 0) >= min_support]
+        if not supported_positions:
+            continue
+        missing = [pos for pos in supported_positions if pos not in current_positions]
+        if not missing:
+            continue
+        missing.sort(key=lambda pos: (-support.get(pos, 0), pos))
+
+        measure_start = first_measure_start + measure_idx * measure_duration
+        added_here = 0
+        for pos in missing:
+            if added_here >= max_add_per_measure:
+                break
+            if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+                break
+            target_time = measure_start + pos * beat_interval
+            if target_time < 0:
+                continue
+            attempted += 1
+
+            selected_time = None
+            if candidate_pool:
+                local_candidates = [
+                    t for t in candidate_pool
+                    if abs(t - target_time) <= seek_window and not _has_near(t, completed, existing_tol)
+                ]
+                if local_candidates:
+                    selected_time = min(local_candidates, key=lambda t: abs(t - target_time))
+            if selected_time is None and allow_grid_fallback:
+                selected_time = target_time
+
+            if selected_time is None:
+                continue
+            if _has_near(selected_time, completed, existing_tol):
+                continue
+            completed.append(selected_time)
+            added.append(selected_time)
+            current_positions.add(pos)
+            added_here += 1
+
+    if verbose:
+        print(f"[DrumGen][этап] expected_groove=+{len(added)} attempts={attempted} seek_window={seek_window:.3f}")
+    return sorted(completed)
+
+
+def _detect_fill_candidate_measures(
+    events: List[float],
+    candidate_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+) -> set:
+    if not events or beats is None or len(beats) < 8:
+        return set()
+
+    buckets, _first_measure_start, _beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return set()
+
+    if len(buckets) < 6:
+        return set()
+
+    counts = [len(positions) for positions in buckets.values()]
+    median_count = float(np.median(counts)) if counts else 0.0
+    dense_cutoff = max(6, int(np.ceil(median_count + 2)))
+
+    candidate_buckets, _cand_start, _cand_beat = _measure_position_buckets(candidate_events, beats, bpm)
+    candidate_counts = [len(positions) for positions in candidate_buckets.values()]
+    candidate_median = float(np.median(candidate_counts)) if candidate_counts else 0.0
+    candidate_dense_cutoff = max(6, int(np.ceil(candidate_median + 2)))
+
+    fill_indices: set = set()
+    for measure_idx in sorted(buckets.keys()):
+        current_count = len(buckets.get(measure_idx, set()))
+        prev_count = len(buckets.get(measure_idx - 1, set())) if measure_idx - 1 in buckets else current_count
+        next_count = len(buckets.get(measure_idx + 1, set())) if measure_idx + 1 in buckets else current_count
+        local_jump = abs(current_count - prev_count) >= 3 or abs(current_count - next_count) >= 3
+
+        cand_count = len(candidate_buckets.get(measure_idx, set()))
+        is_dense = current_count >= dense_cutoff or cand_count >= candidate_dense_cutoff
+        if is_dense and local_jump:
+            fill_indices.add(measure_idx)
+            fill_indices.add(measure_idx - 1)
+            fill_indices.add(measure_idx + 1)
+
+    return fill_indices
+
+
+def _reinforce_repeating_measure_hits(
+    events: List[float],
+    candidate_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    mode: str,
+    preset: Dict,
+    verbose: bool,
+) -> List[float]:
+    if not events or not bool(preset.get("loop_reinforce", False)):
+        return events
+    if beats is None or len(beats) < 8:
+        return events
+
+    buckets, first_measure_start, beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return events
+
+    measure_duration = beat_interval * 4.0
+    existing_tol = max(min(0.04, beat_interval * 0.12), min(float(preset.get("hit_cluster_window", 0.0) or 0.0), beat_interval * 0.28))
+    seek_window = 0.09
+    max_add_per_measure = 2
+    max_notes_per_measure = int(preset.get("max_notes_per_measure", 0) or 0)
+
+    completed = sorted(set(events))
+    candidate_pool = sorted(set(candidate_events or []))
+    if not candidate_pool:
+        return completed
+
+    added: List[float] = []
+    attempts = 0
+    fill_indices = _detect_fill_candidate_measures(events, candidate_pool, beats, bpm)
+    all_indices = sorted(buckets.keys())
+    for measure_idx in all_indices:
+        if measure_idx in fill_indices:
+            continue
+        if measure_idx - 1 not in buckets:
+            continue
+        prev_positions = set(buckets.get(measure_idx - 1, set()))
+        if measure_idx - 2 in buckets:
+            prev_positions &= set(buckets.get(measure_idx - 2, set()))
+        if not prev_positions:
+            continue
+
+        current_positions = set(buckets.get(measure_idx, set()))
+        if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+            continue
+        missing = sorted(pos for pos in prev_positions if pos not in current_positions)
+        if not missing:
+            continue
+
+        added_here = 0
+        measure_start = first_measure_start + measure_idx * measure_duration
+        for pos in missing:
+            if added_here >= max_add_per_measure:
+                break
+            if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+                break
+            target_time = measure_start + pos * beat_interval
+            attempts += 1
+            local_candidates = [
+                t for t in candidate_pool
+                if abs(t - target_time) <= seek_window and not _has_near(t, completed, existing_tol)
+            ]
+            if not local_candidates:
+                continue
+            selected_time = min(local_candidates, key=lambda t: abs(t - target_time))
+            if _has_near(selected_time, completed, existing_tol):
+                continue
+            completed.append(selected_time)
+            added.append(selected_time)
+            current_positions.add(pos)
+            added_here += 1
+
+    if verbose:
+        print(
+            f"[DrumGen][этап] loop_reinforce=+{len(added)} attempts={attempts} "
+            f"seek_window={seek_window:.3f} fill_skip={len(fill_indices)}"
+        )
+    return sorted(completed)
+
+
+def _reinforce_four_bar_loop_hits(
+    events: List[float],
+    candidate_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    mode: str,
+    preset: Dict,
+    verbose: bool,
+) -> List[float]:
+    if not events or not bool(preset.get("loop4_reinforce", False)):
+        return events
+    if beats is None or len(beats) < 16:
+        return events
+
+    buckets, first_measure_start, beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return events
+
+    measure_duration = beat_interval * 4.0
+    cluster_window = float(preset.get("hit_cluster_window", 0.0) or 0.0)
+    existing_tol = max(min(0.04, beat_interval * 0.12), min(cluster_window, beat_interval * 0.28))
+    seek_window = 0.09
+    max_add_per_measure = 2
+    max_notes_per_measure = int(preset.get("max_notes_per_measure", 0) or 0)
+
+    completed = sorted(set(events))
+    candidate_pool = sorted(set(candidate_events or []))
+    if not candidate_pool:
+        return completed
+
+    fill_indices = _detect_fill_candidate_measures(events, candidate_pool, beats, bpm)
+    added: List[float] = []
+    attempts = 0
+    for measure_idx in sorted(buckets.keys()):
+        if measure_idx in fill_indices:
+            continue
+        reference_positions: set = set()
+        for ref_idx in (measure_idx - 4, measure_idx + 4):
+            if ref_idx in buckets:
+                reference_positions.update(set(buckets.get(ref_idx, set())))
+        if not reference_positions:
+            continue
+
+        current_positions = set(buckets.get(measure_idx, set()))
+        if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+            continue
+        missing = sorted(pos for pos in reference_positions if pos not in current_positions)
+        if not missing:
+            continue
+
+        added_here = 0
+        measure_start = first_measure_start + measure_idx * measure_duration
+        for pos in missing:
+            if added_here >= max_add_per_measure:
+                break
+            if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+                break
+            target_time = measure_start + pos * beat_interval
+            attempts += 1
+            local_candidates = [
+                t for t in candidate_pool
+                if abs(t - target_time) <= seek_window and not _has_near(t, completed, existing_tol)
+            ]
+            if not local_candidates:
+                continue
+            selected_time = min(local_candidates, key=lambda t: abs(t - target_time))
+            if _has_near(selected_time, completed, existing_tol):
+                continue
+            completed.append(selected_time)
+            added.append(selected_time)
+            current_positions.add(pos)
+            added_here += 1
+
+    if verbose:
+        print(
+            f"[DrumGen][этап] loop4_reinforce=+{len(added)} attempts={attempts} "
+            f"seek_window={seek_window:.3f} fill_skip={len(fill_indices)}"
+        )
+    return sorted(completed)
+
+
+def _recover_fill_single_misses(
+    events: List[float],
+    candidate_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    mode: str,
+    preset: Dict,
+    verbose: bool,
+) -> List[float]:
+    if not events or not bool(preset.get("fill_recover", False)):
+        return events
+    if beats is None or len(beats) < 8:
+        return events
+
+    buckets, first_measure_start, beat_interval = _measure_position_buckets(events, beats, bpm)
+    if not buckets:
+        return events
+    candidate_buckets, _cand_start, _cand_beat = _measure_position_buckets(candidate_events, beats, bpm)
+    if not candidate_buckets:
+        return events
+
+    fill_indices = _detect_fill_candidate_measures(events, candidate_events, beats, bpm)
+    if not fill_indices:
+        return events
+
+    measure_duration = beat_interval * 4.0
+    existing_tol = max(min(0.04, beat_interval * 0.12), min(float(preset.get("hit_cluster_window", 0.0) or 0.0), beat_interval * 0.28))
+    seek_window = 0.07
+    max_notes_per_measure = int(preset.get("max_notes_per_measure", 0) or 0)
+    fill_anchor_positions = [round(i * 0.25, 2) for i in range(16)]
+
+    completed = sorted(set(events))
+    candidate_pool = sorted(set(candidate_events or []))
+    added: List[float] = []
+    attempts = 0
+
+    for measure_idx in sorted(fill_indices):
+        current_positions = set(buckets.get(measure_idx, set()))
+        if max_notes_per_measure > 0 and len(current_positions) >= max_notes_per_measure:
+            continue
+        candidate_positions = set(candidate_buckets.get(measure_idx, set()))
+        if not candidate_positions:
+            continue
+
+        missing_positions = [pos for pos in fill_anchor_positions if pos in candidate_positions and pos not in current_positions]
+        if not missing_positions:
+            continue
+
+        measure_start = first_measure_start + measure_idx * measure_duration
+        missing_positions.sort(key=lambda pos: min(abs(pos - 1.75), abs(pos - 2.0), abs(pos - 2.25), abs(pos - 2.5)))
+        for pos in missing_positions:
+            attempts += 1
+            target_time = measure_start + pos * beat_interval
+            local_candidates = [
+                t for t in candidate_pool
+                if abs(t - target_time) <= seek_window and not _has_near(t, completed, existing_tol)
+            ]
+            if not local_candidates:
+                continue
+            selected_time = min(local_candidates, key=lambda t: abs(t - target_time))
+            if _has_near(selected_time, completed, existing_tol):
+                continue
+            completed.append(selected_time)
+            added.append(selected_time)
+            break
+
+    if verbose:
+        print(
+            f"[DrumGen][этап] fill_recover=+{len(added)} attempts={attempts} "
+            f"seek_window={seek_window:.3f}"
+        )
+    return sorted(completed)
+
+
+def _apply_basic_section_timing_correction(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    mode: str,
+    preset: Dict,
+    filtered_events: List[float],
+    verbose: bool,
+) -> List[float]:
+    if not events:
+        return events
+    if beats is None or len(beats) < 16:
+        return events
+    if not bool(preset.get("section_timing_correction", False)):
+        return events
+
+    strength = float(preset.get("section_timing_correction_strength", 0.45) or 0.45)
+    cap_ms = float(preset.get("section_timing_correction_cap_ms", 14.0) or 14.0)
+    min_events = int(preset.get("section_timing_correction_min_events", 8) or 8)
+    median_ignore_below_ms = float(preset.get("section_timing_correction_ignore_below_ms", 5.0) or 5.0)
+    if strength <= 0 or cap_ms <= 0:
+        return events
+
+    beat_interval = float(np.median(np.diff(beats))) if len(beats) >= 2 else 60.0 / max(1.0, bpm)
+    if beat_interval <= 0:
+        return events
+
+    first_measure_start = float(beats[0])
+    measure_duration = beat_interval * 4.0
+    window_duration = measure_duration * 4.0
+    sorted_ev = sorted(events)
+    fill_skip = (
+        _detect_fill_candidate_measures(events, filtered_events, beats, bpm)
+        if filtered_events
+        else set()
+    )
+
+    def measure_idx_for(t: float) -> int:
+        return int(np.floor((t - first_measure_start) / measure_duration))
+
+    max_time = max(sorted_ev[-1], float(beats[-1]))
+    sixteenth_grid = np.arange(first_measure_start, max_time + beat_interval, beat_interval / 4.0)
+    if len(sixteenth_grid) == 0:
+        return events
+
+    t0 = first_measure_start
+    num_blocks = max(1, int(np.ceil((sorted_ev[-1] - t0) / window_duration)) + 1)
+
+    block_corr_ms: List[float] = []
+    for b in range(num_blocks):
+        start_w = t0 + b * window_duration
+        end_w = start_w + window_duration
+        offsets_ms: List[float] = []
+        for t in sorted_ev:
+            if not (start_w <= t < end_w):
+                continue
+            if fill_skip and measure_idx_for(t) in fill_skip:
+                continue
+            nearest = float(sixteenth_grid[int(np.argmin(np.abs(sixteenth_grid - t)))])
+            offsets_ms.append((t - nearest) * 1000.0)
+        if len(offsets_ms) >= min_events:
+            med = float(np.median(np.array(offsets_ms, dtype=float)))
+            if abs(med) < median_ignore_below_ms:
+                block_corr_ms.append(0.0)
+            else:
+                corr = -strength * med
+                block_corr_ms.append(float(max(-cap_ms, min(cap_ms, corr))))
+        else:
+            block_corr_ms.append(0.0)
+
+    adjusted: List[float] = []
+    max_abs_ms = 0.0
+    last_b = len(block_corr_ms) - 1
+    for t in sorted_ev:
+        if fill_skip and measure_idx_for(t) in fill_skip:
+            adjusted.append(t)
+            continue
+        b = int(np.floor((t - t0) / window_duration))
+        if b < 0:
+            b = 0
+        elif b > last_b:
+            b = last_b
+        corr_ms = block_corr_ms[b]
+        max_abs_ms = max(max_abs_ms, abs(corr_ms))
+        adjusted.append(t + corr_ms / 1000.0)
+
+    if verbose:
+        print(f"[DrumGen][этап] section_timing_corr max_abs_ms={max_abs_ms:.1f} blocks={num_blocks} piecewise=1")
+    return sorted(adjusted)
 
 
 def _rhythm_diagnostics_enabled() -> bool:
@@ -178,6 +851,103 @@ def _signature_label(signature: tuple) -> str:
     if not signature:
         return "-"
     return ",".join(f"{pos:g}" for pos in signature)
+
+
+def _print_timing_offset_diagnostics(
+    label: str,
+    events: List[float],
+    beats: np.ndarray,
+    beat_interval: float,
+) -> None:
+    if not events or beats is None or len(beats) < 2 or beat_interval <= 0:
+        return
+
+    max_time = max(float(events[-1]), float(beats[-1]))
+    eighth_step = beat_interval / 2.0
+    sixteenth_step = beat_interval / 4.0
+    eighth_grid = np.arange(float(beats[0]), max_time + beat_interval, eighth_step)
+    sixteenth_grid = np.arange(float(beats[0]), max_time + beat_interval, sixteenth_step)
+    if len(eighth_grid) == 0 or len(sixteenth_grid) == 0:
+        return
+
+    offsets_8_ms: List[float] = []
+    offsets_16_ms: List[float] = []
+    for t in sorted(events):
+        e8 = float(eighth_grid[int(np.argmin(np.abs(eighth_grid - t)))])
+        e16 = float(sixteenth_grid[int(np.argmin(np.abs(sixteenth_grid - t)))])
+        offsets_8_ms.append((t - e8) * 1000.0)
+        offsets_16_ms.append((t - e16) * 1000.0)
+
+    arr8 = np.array(offsets_8_ms, dtype=float)
+    arr16 = np.array(offsets_16_ms, dtype=float)
+    late8 = float(np.mean(arr8 > 0.0) * 100.0)
+    late16 = float(np.mean(arr16 > 0.0) * 100.0)
+
+    print(
+        f"[RhythmDiag]   timing_{label}_8th_ms median={np.median(arr8):.1f} "
+        f"p10={np.percentile(arr8, 10):.1f} p90={np.percentile(arr8, 90):.1f} "
+        f"late={late8:.0f}%"
+    )
+    print(
+        f"[RhythmDiag]   timing_{label}_16th_ms median={np.median(arr16):.1f} "
+        f"p10={np.percentile(arr16, 10):.1f} p90={np.percentile(arr16, 90):.1f} "
+        f"late={late16:.0f}%"
+    )
+
+
+def _print_section_timing_offset_diagnostics(
+    label: str,
+    events: List[float],
+    beats: np.ndarray,
+    beat_interval: float,
+) -> None:
+    if not events or beats is None or len(beats) < 16 or beat_interval <= 0:
+        return
+
+    measure_duration = beat_interval * 4.0
+    first_measure_start = float(beats[0])
+    total_measures = int(np.ceil((float(events[-1]) - first_measure_start) / measure_duration))
+    if total_measures < 8:
+        return
+
+    sixteenth_step = beat_interval / 4.0
+    max_time = max(float(events[-1]), float(beats[-1]))
+    sixteenth_grid = np.arange(first_measure_start, max_time + beat_interval, sixteenth_step)
+    if len(sixteenth_grid) == 0:
+        return
+
+    window_measures = 4
+    window_stats: List[tuple[int, float, float, int]] = []
+    sorted_events = sorted(events)
+    for start_measure in range(0, max(1, total_measures - window_measures + 1)):
+        start_t = first_measure_start + start_measure * measure_duration
+        end_t = start_t + window_measures * measure_duration
+        section_events = [t for t in sorted_events if start_t <= t < end_t]
+        if len(section_events) < 8:
+            continue
+        offsets = []
+        for t in section_events:
+            nearest = float(sixteenth_grid[int(np.argmin(np.abs(sixteenth_grid - t)))])
+            offsets.append((t - nearest) * 1000.0)
+        arr = np.array(offsets, dtype=float)
+        window_stats.append((start_measure, float(np.median(arr)), float(np.mean(arr > 0.0) * 100.0), len(section_events)))
+
+    if not window_stats:
+        return
+
+    most_late = sorted(window_stats, key=lambda item: item[1], reverse=True)[:2]
+    most_early = sorted(window_stats, key=lambda item: item[1])[:2]
+    print(f"[RhythmDiag]   timing_{label}_sections_4bar total={len(window_stats)}")
+    for start, median_ms, late_pct, n in most_late:
+        print(
+            f"[RhythmDiag]     late m{start}-{start + window_measures - 1}: "
+            f"median={median_ms:.1f}ms late={late_pct:.0f}% n={n}"
+        )
+    for start, median_ms, late_pct, n in most_early:
+        print(
+            f"[RhythmDiag]     early m{start}-{start + window_measures - 1}: "
+            f"median={median_ms:.1f}ms late={late_pct:.0f}% n={n}"
+        )
 
 
 def _print_rhythm_diagnostics(
@@ -244,6 +1014,8 @@ def _print_rhythm_diagnostics(
         print(f"[RhythmDiag]   dense_measure_candidates={dense_measures}")
     if sparse_measures and top_count < len(buckets):
         print(f"[RhythmDiag]   sparse_measure_candidates={sparse_measures}")
+    _print_timing_offset_diagnostics(label, sorted(events), beats, beat_interval)
+    _print_section_timing_offset_diagnostics(label, sorted(events), beats, beat_interval)
 
 
 def _append_events_with_density_guardrails(
@@ -579,6 +1351,7 @@ def generate_drums_notes(
     drum_density_threshold = float(genre_params.get("drum_density_threshold", 0.5))
     drum_section_start = detect_drum_section_start(raw_events, drum_start_window, drum_density_threshold)
     filtered_events = [t for t in raw_events if t >= drum_section_start]
+    core_sources = sorted(set(t for t in (kick_times + snare_times) if t >= drum_section_start))
 
     min_note_distance = float(genre_params.get("min_note_distance", 0.05))
     if mode == "custom":
@@ -617,6 +1390,55 @@ def generate_drums_notes(
     events_after_timing = synced_events
     if accent_strong_beats:
         events_after_timing = _accent_to_strong_beats(events_after_timing, beats, sync_tolerance, 70)
+    before_cluster = len(events_after_timing)
+    events_after_timing = _cluster_hit_events(events_after_timing, beats, bpm, preset)
+    if verbose and len(events_after_timing) != before_cluster:
+        print(f"[DrumGen][этап] hit_cluster={before_cluster}->{len(events_after_timing)}")
+    events_after_timing = _complete_groove_from_neighbors(events_after_timing, beats, bpm, preset, verbose)
+    events_after_timing = _apply_expected_groove_grid(
+        events_after_timing,
+        filtered_events,
+        beats,
+        bpm,
+        preset,
+        verbose,
+    )
+    events_after_timing = _reinforce_repeating_measure_hits(
+        events_after_timing,
+        filtered_events,
+        beats,
+        bpm,
+        mode,
+        preset,
+        verbose,
+    )
+    events_after_timing = _reinforce_four_bar_loop_hits(
+        events_after_timing,
+        filtered_events,
+        beats,
+        bpm,
+        mode,
+        preset,
+        verbose,
+    )
+    events_after_timing = _recover_fill_single_misses(
+        events_after_timing,
+        filtered_events,
+        beats,
+        bpm,
+        mode,
+        preset,
+        verbose,
+    )
+    events_after_timing = _apply_basic_section_timing_correction(
+        events_after_timing,
+        beats,
+        bpm,
+        mode,
+        preset,
+        filtered_events,
+        verbose,
+    )
     if mode == "minimal":
         before_sparse = len(events_after_timing)
         events_after_timing = _sparsify_by_beats(events_after_timing, beats, bpm, max_per_beat=1)
@@ -628,14 +1450,28 @@ def generate_drums_notes(
             f"[DrumGen][этап] after_filter={len(events)} after_groove={len(grooved_events)} "
             f"after_sync={len(synced_events)}"
         )
+    if mode == "basic":
+        print(
+            f"[DrumGen] Basic caps | hits/sec={_effective_max_hits_per_second(preset, bpm)} "
+            f"notes/measure={_effective_max_notes_per_measure(preset, bpm)}"
+        )
 
     if cancel_cb:
         cancel_cb()
 
     before_guardrails = len(events_after_timing)
-    base_times = _apply_density_guardrails(list(events_after_timing), beats, bpm, preset)
+    base_times = _apply_density_guardrails_preserving_core(
+        list(events_after_timing),
+        core_sources,
+        beats,
+        bpm,
+        preset,
+    )
     if verbose and len(base_times) != before_guardrails:
         print(f"[DrumGen][этап] density_guardrails={before_guardrails}->{len(base_times)}")
+    if verbose and bool(preset.get("preserve_core_hits", False)):
+        core_kept, extra_kept = _split_core_and_extra_events(base_times, core_sources, preset)
+        print(f"[DrumGen][этап] core_hits={len(core_kept)} extra_hits={len(extra_kept)}")
     if mode == "basic":
         fill = 0
     if mode == "minimal":

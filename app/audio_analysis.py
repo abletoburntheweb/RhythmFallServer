@@ -495,17 +495,30 @@ def quantize_events_to_grid(events: List[float], bpm: float, tolerance: float = 
 
     if not events or len(events) == 0:
         return []
-    beat_interval = 60.0 / bpm
+    beat_interval = 60.0 / max(1e-6, bpm)
+    effective_tolerance = min(float(tolerance), beat_interval * 0.22)
+    fast_gap_threshold = beat_interval * 0.40
+
+    sorted_events = sorted(float(t) for t in events)
+    fast_mask: List[bool] = []
+    for i, t in enumerate(sorted_events):
+        prev_gap = (t - sorted_events[i - 1]) if i > 0 else 1e9
+        next_gap = (sorted_events[i + 1] - t) if i + 1 < len(sorted_events) else 1e9
+        fast_mask.append(min(prev_gap, next_gap) <= fast_gap_threshold)
+
     grids = []
     for div in subdivisions:
         step = beat_interval / div
-        grid = np.arange(0.0, max(events) + beat_interval, step)
+        grid = np.arange(0.0, max(sorted_events) + beat_interval, step)
         grids.append(grid)
 
     quantized = []
-    for t in events:
+    for idx_event, t in enumerate(sorted_events):
+        if fast_mask[idx_event]:
+            quantized.append(t)
+            continue
         best_snap = t
-        min_diff = tolerance + 1
+        min_diff = effective_tolerance + 1.0
 
         for grid in grids:
             idx = bisect_left(grid, t)
@@ -517,7 +530,7 @@ def quantize_events_to_grid(events: List[float], bpm: float, tolerance: float = 
 
             for candidate in candidates:
                 diff = abs(candidate - t)
-                if diff <= tolerance and diff < min_diff:
+                if diff <= effective_tolerance and diff < min_diff:
                     min_diff = diff
                     best_snap = candidate
 

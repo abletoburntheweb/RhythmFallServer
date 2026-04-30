@@ -2,9 +2,65 @@
 import json
 import os
 import random
+from collections import deque
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Deque
 import numpy as np
+
+LANE_TIME_BUCKET_EPS = 1e-5
+
+LANE_REPEAT_BIAS_GAP_S = 0.085
+LANE_REPEAT_WEIGHT_POWER = 1.35
+LANE_REPEAT_MIN_WEIGHT = 0.06
+LANE_SAME_AS_PREV_MULT = 0.11
+LANE_RECENT_HISTORY_LEN = 10
+LANE_HISTORY_OVERUSE_PENALTY = 0.55
+
+
+def dedupe_notes_same_lane_same_time(notes: List[Dict], eps: float = LANE_TIME_BUCKET_EPS) -> List[Dict]:
+    if not notes:
+        return notes
+    ordered = sorted(notes, key=lambda x: (float(x["time"]), int(x.get("lane", 0))))
+    out: List[Dict] = []
+    last_t_by_lane: Dict[int, float] = {}
+    for n in ordered:
+        lane = int(n.get("lane", 0))
+        t = float(n["time"])
+        prev = last_t_by_lane.get(lane)
+        if prev is not None and abs(t - prev) <= eps:
+            continue
+        last_t_by_lane[lane] = t
+        out.append(n)
+    return out
+
+
+def _pick_lane_avoid_spam(
+    available_lanes: List[int],
+    adjusted_time: float,
+    last_lane_usage: Dict[int, float],
+    prev_lane: Optional[int],
+    recent_lanes: Deque[int],
+) -> int:
+    if len(available_lanes) == 1:
+        return available_lanes[0]
+
+    bias_gap = LANE_REPEAT_BIAS_GAP_S
+    weights: List[float] = []
+    floor_w = LANE_REPEAT_MIN_WEIGHT
+
+    for lane in available_lanes:
+        last_t = last_lane_usage.get(lane, -1e9)
+        dt = max(adjusted_time - last_t, LANE_TIME_BUCKET_EPS)
+        w = min(1.0, (dt / bias_gap) ** LANE_REPEAT_WEIGHT_POWER)
+        w = max(w, floor_w)
+        if prev_lane is not None and lane == prev_lane:
+            w *= LANE_SAME_AS_PREV_MULT
+        cnt = sum(1 for x in recent_lanes if x == lane)
+        w /= 1.0 + LANE_HISTORY_OVERUSE_PENALTY * cnt
+        w = max(w, floor_w * 0.2)
+        weights.append(w)
+
+    return random.choices(available_lanes, weights=weights, k=1)[0]
 
 
 def apply_temporal_filter(events: List[float], min_distance: float = 0.05) -> List[float]:
@@ -81,27 +137,53 @@ def assign_lanes_to_notes(notes: List[Dict], lanes: int = 4, song_offset: float 
     notes = [n for n in notes if n["time"] + song_offset > 0]
     notes.sort(key=lambda x: x["time"])
 
-    last_lane_usage = {}
-    result = []
+    last_lane_usage: Dict[int, float] = {}
+    result: List[Dict] = []
+    recent_lanes: Deque[int] = deque(maxlen=LANE_RECENT_HISTORY_LEN)
+    prev_lane: Optional[int] = None
 
-    for note in notes:
-        adjusted_time = note["time"] + song_offset
-        available_lanes = [
-            lane for lane in range(lanes)
-            if last_lane_usage.get(lane, -999) < adjusted_time
-        ]
-        if available_lanes:
-            lane = random.choice(available_lanes)
-        else:
-            lane = min(range(lanes), key=lambda l: last_lane_usage.get(l, -999))
+    eps = LANE_TIME_BUCKET_EPS
+    i = 0
+    while i < len(notes):
+        t_anchor = float(notes[i]["time"]) + song_offset
+        bucket_end = i
+        while bucket_end < len(notes):
+            t_here = float(notes[bucket_end]["time"]) + song_offset
+            if abs(t_here - t_anchor) > eps:
+                break
+            bucket_end += 1
 
-        last_lane_usage[lane] = adjusted_time
-        payload = dict(note)
-        payload["lane"] = lane
-        payload["time"] = float(adjusted_time)
-        result.append(payload)
+        used_this_instant: set[int] = set()
+        for note in notes[i:bucket_end]:
+            adjusted_time = float(note["time"]) + song_offset
+            available_lanes = [
+                lane for lane in range(lanes)
+                if last_lane_usage.get(lane, -999.0) < adjusted_time - eps
+                and lane not in used_this_instant
+            ]
+            if not available_lanes:
+                continue
 
-    return sorted(result, key=lambda x: x["time"])
+            lane = _pick_lane_avoid_spam(
+                available_lanes,
+                adjusted_time,
+                last_lane_usage,
+                prev_lane,
+                recent_lanes,
+            )
+            used_this_instant.add(lane)
+            last_lane_usage[lane] = adjusted_time
+            recent_lanes.append(lane)
+            prev_lane = lane
+            payload = dict(note)
+            payload["lane"] = lane
+            payload["time"] = adjusted_time
+            result.append(payload)
+
+        i = bucket_end
+
+    result = sorted(result, key=lambda x: x["time"])
+    return dedupe_notes_same_lane_same_time(result, eps=eps)
 
 
 def remove_kick_snare_collisions(
