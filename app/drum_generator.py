@@ -1,3 +1,5 @@
+# app/drum_generator.py
+import os
 import numpy as np
 from typing import List, Dict, Optional
 
@@ -11,13 +13,7 @@ from .drum_utils import (
 )
 from .note_types import NoteType
 from .genre_detector import get_genre_config
-
-MODE_PRESETS: Dict[str, Dict[str, int]] = {
-    "minimal":  {"fill": 0,  "groove": 20, "density": 30, "accent_strong_beats": 1, "genre_template_strength": 45},
-    "basic":    {"fill": 0,  "groove": 50, "density": 50, "accent_strong_beats": 1, "genre_template_strength": 60},
-    "enhanced": {"fill": 75, "groove": 55, "density": 70, "accent_strong_beats": 0, "genre_template_strength": 80},
-    "natural":  {"fill": 0,  "groove": 50, "density": 50, "accent_strong_beats": 0, "genre_template_strength": 20},
-}
+from .generation_presets import resolve_generation_preset
 
 _HARD_CAPS: Dict[str, Dict] = {
     "pop":           {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
@@ -57,10 +53,11 @@ def _presets_for_mode(
     density: Optional[int],
     accent_strong_beats: Optional[bool],
     genre_template_strength: Optional[int],
+    preset: Optional[Dict] = None,
 ):
-    mode = (generation_mode or "basic").lower()
-    if mode != "custom":
-        preset = MODE_PRESETS.get(mode, MODE_PRESETS["basic"])
+    preset = preset or resolve_generation_preset(None, generation_mode)
+    mode = str(preset.get("mode", generation_mode or "basic")).lower()
+    if not bool(preset.get("allow_client_overrides", False)):
         return (
             int(preset["fill"]),
             int(preset["groove"]),
@@ -68,7 +65,7 @@ def _presets_for_mode(
             bool(preset.get("accent_strong_beats", 0)),
             int(preset.get("genre_template_strength", 60)),
         )
-    base = MODE_PRESETS["basic"]
+    base = preset
     return (
         int(fill if fill is not None else base["fill"]),
         int(groove if groove is not None else base["groove"]),
@@ -103,6 +100,167 @@ def _has_near(t: float, existing: List[float], tol: float) -> bool:
 
 def _count_in_window(times: List[float], start: float, end: float) -> int:
     return sum(1 for t in times if start <= t < end)
+
+
+def _select_raw_events(
+    kick_times: List[float],
+    snare_times: List[float],
+    dominant_onsets: List[float],
+    policy: str,
+) -> List[float]:
+    drum_hits = sorted(set(kick_times + snare_times))
+    dominant = sorted(set(dominant_onsets))
+
+    if policy == "drum_hits_with_dominant_fallback":
+        return drum_hits or dominant
+    if policy == "drum_hits_only":
+        return drum_hits
+    return dominant or drum_hits
+
+
+def _cap_events_per_second(events: List[float], max_hits_per_second: int) -> List[float]:
+    if not events or max_hits_per_second <= 0:
+        return events
+    kept: List[float] = []
+    for event in sorted(events):
+        window_start = event - 1.0
+        recent = [t for t in kept if t > window_start]
+        if len(recent) < max_hits_per_second:
+            kept.append(event)
+    return kept
+
+
+def _cap_events_per_measure(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    max_notes_per_measure: int,
+) -> List[float]:
+    if not events or max_notes_per_measure <= 0:
+        return events
+
+    beat_interval = 60.0 / max(1.0, bpm)
+    measure_duration = beat_interval * 4
+    if beats is not None and len(beats) >= 2:
+        first_measure_start = float(beats[0])
+    else:
+        first_measure_start = min(events)
+
+    buckets: Dict[int, List[float]] = {}
+    for event in sorted(events):
+        idx = int(max(0, np.floor((event - first_measure_start) / measure_duration)))
+        bucket = buckets.setdefault(idx, [])
+        if len(bucket) < max_notes_per_measure:
+            bucket.append(event)
+
+    capped: List[float] = []
+    for idx in sorted(buckets):
+        capped.extend(buckets[idx])
+    return capped
+
+
+def _apply_density_guardrails(
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+) -> List[float]:
+    guarded = _cap_events_per_second(events, int(preset.get("max_hits_per_second", 0) or 0))
+    guarded = _cap_events_per_measure(guarded, beats, bpm, int(preset.get("max_notes_per_measure", 0) or 0))
+    return guarded
+
+
+def _rhythm_diagnostics_enabled() -> bool:
+    return os.getenv("RF_RHYTHM_DIAG", "1") == "1"
+
+
+def _signature_label(signature: tuple) -> str:
+    if not signature:
+        return "-"
+    return ",".join(f"{pos:g}" for pos in signature)
+
+
+def _print_rhythm_diagnostics(
+    label: str,
+    events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    mode: str,
+    preset_id: str,
+) -> None:
+    if not _rhythm_diagnostics_enabled() or not events or beats is None or len(beats) < 8:
+        return
+
+    beat_interval = float(np.median(np.diff(beats))) if len(beats) >= 2 else 60.0 / max(1.0, bpm)
+    if beat_interval <= 0:
+        return
+
+    measure_duration = beat_interval * 4
+    first_measure_start = float(beats[0])
+    buckets: Dict[int, List[float]] = {}
+    for event in sorted(events):
+        measure_idx = int(np.floor((event - first_measure_start) / measure_duration))
+        if measure_idx < 0:
+            continue
+        rel_beats = (event - (first_measure_start + measure_idx * measure_duration)) / beat_interval
+        if rel_beats < -0.1 or rel_beats >= 4.1:
+            continue
+        quantized = round(max(0.0, min(3.75, rel_beats)) * 4.0) / 4.0
+        bucket = buckets.setdefault(measure_idx, [])
+        if quantized not in bucket:
+            bucket.append(quantized)
+
+    if not buckets:
+        return
+
+    signatures: Dict[tuple, int] = {}
+    counts: List[int] = []
+    for positions in buckets.values():
+        signature = tuple(sorted(positions))
+        signatures[signature] = signatures.get(signature, 0) + 1
+        counts.append(len(signature))
+
+    top = sorted(signatures.items(), key=lambda item: (-item[1], -len(item[0]), item[0]))[:5]
+    median_count = float(np.median(counts)) if counts else 0.0
+    top_count = top[0][1] if top else 0
+    stable_measures = sum(count for _, count in top[:2])
+    dense_measures = [
+        idx for idx, positions in sorted(buckets.items())
+        if len(positions) >= max(5, int(np.ceil(median_count + 3)))
+    ][:8]
+    sparse_measures = [
+        idx for idx, positions in sorted(buckets.items())
+        if len(positions) <= max(1, int(np.floor(median_count - 2)))
+    ][:8]
+
+    print(
+        f"[RhythmDiag] {label} mode={mode} preset={preset_id} "
+        f"events={len(events)} measures={len(buckets)} median_notes={median_count:.1f} "
+        f"stable_top2={stable_measures}/{len(buckets)}"
+    )
+    for i, (signature, count) in enumerate(top, start=1):
+        print(f"[RhythmDiag]   top{i}: x{count} notes={len(signature)} sig={_signature_label(signature)}")
+    if dense_measures:
+        print(f"[RhythmDiag]   dense_measure_candidates={dense_measures}")
+    if sparse_measures and top_count < len(buckets):
+        print(f"[RhythmDiag]   sparse_measure_candidates={sparse_measures}")
+
+
+def _append_events_with_density_guardrails(
+    base_events: List[float],
+    added_events: List[float],
+    beats: np.ndarray,
+    bpm: float,
+    preset: Dict,
+) -> List[float]:
+    kept = sorted(set(base_events))
+    for event in sorted(set(added_events)):
+        if event in kept:
+            continue
+        candidate = sorted(kept + [event])
+        if len(_apply_density_guardrails(candidate, beats, bpm, preset)) == len(candidate):
+            kept = candidate
+    return kept
 
 
 def _measure_bounds(start_time: float, end_time: float, beat_interval: float) -> List:
@@ -314,6 +472,7 @@ def generate_drums_notes(
     use_madmom_beats: bool = True,
     use_stems: bool = True,
     generation_mode: str = "basic",
+    preset_id: Optional[str] = None,
     fill: Optional[int] = None,
     groove: Optional[int] = None,
     density: Optional[int] = None,
@@ -329,7 +488,9 @@ def generate_drums_notes(
     status_cb=None,
     cancel_cb=None,
 ) -> Optional[List[Dict]]:
-    mode = generation_mode.lower()
+    preset = resolve_generation_preset(preset_id, generation_mode)
+    preset_id = str(preset.get("preset_id", preset_id or generation_mode or "basic"))
+    mode = str(preset.get("mode", generation_mode or "basic")).lower()
     fill, groove, density, accent_strong_beats, genre_template_strength = _presets_for_mode(
         mode,
         fill,
@@ -337,24 +498,16 @@ def generate_drums_notes(
         density,
         accent_strong_beats,
         genre_template_strength,
+        preset=preset,
     )
     genre_template_strength = int(max(0, min(100, int(genre_template_strength))))
-    if grid_snap_strength is None:
-        if mode == "minimal":
-            grid_snap_strength = 85
-        elif mode == "basic":
-            grid_snap_strength = 60
-        elif mode == "enhanced":
-            grid_snap_strength = 35
-        elif mode == "natural":
-            grid_snap_strength = 0
-        else:
-            grid_snap_strength = 35
+    if grid_snap_strength is None or not bool(preset.get("allow_client_overrides", False)):
+        grid_snap_strength = int(preset.get("grid_snap_strength", 35))
     grid_snap_strength = int(max(0, min(100, int(grid_snap_strength))))
     grid_snap_enabled = grid_snap_strength > 0
 
     if verbose:
-        print(f"[DrumGen] режим={mode} fill={fill} groove={groove} density={density} grid_snap_strength={grid_snap_strength} accent_strong_beats={accent_strong_beats} genre_template_strength={genre_template_strength} bpm={bpm} lanes={lanes}")
+        print(f"[DrumGen] preset={preset_id} режим={mode} fill={fill} groove={groove} density={density} grid_snap_strength={grid_snap_strength} accent_strong_beats={accent_strong_beats} genre_template_strength={genre_template_strength} bpm={bpm} lanes={lanes}")
 
     if cancel_cb:
         cancel_cb()
@@ -409,9 +562,15 @@ def generate_drums_notes(
             f"snare={len(snare_times)} dominant={len(dominant_onsets)}"
         )
 
-    raw_events = sorted(set(dominant_onsets)) if dominant_onsets else sorted(set(kick_times + snare_times))
+    raw_events = _select_raw_events(
+        kick_times,
+        snare_times,
+        dominant_onsets,
+        str(preset.get("dominant_onsets_policy", "dominant_onsets")),
+    )
     if not raw_events:
         return None
+    _print_rhythm_diagnostics("source", raw_events, beats, bpm, mode, preset_id)
 
     if "sync_tolerance_multiplier" in genre_params:
         sync_tolerance = float(sync_tolerance) * float(genre_params.get("sync_tolerance_multiplier", 1.0))
@@ -426,6 +585,7 @@ def generate_drums_notes(
         min_note_distance = _density_to_min_distance(min_note_distance, density)
     elif mode == "minimal":
         min_note_distance = min(0.22, max(0.06, min_note_distance * 1.35))
+    min_note_distance = max(min_note_distance, float(preset.get("min_note_distance_floor", 0.0) or 0.0))
 
     pattern_style = genre_params.get("pattern_style", "groove")
     apply_groove = bool(genre_params.get("apply_groove_pattern", False))
@@ -472,7 +632,10 @@ def generate_drums_notes(
     if cancel_cb:
         cancel_cb()
 
-    base_times = list(events_after_timing)
+    before_guardrails = len(events_after_timing)
+    base_times = _apply_density_guardrails(list(events_after_timing), beats, bpm, preset)
+    if verbose and len(base_times) != before_guardrails:
+        print(f"[DrumGen][этап] density_guardrails={before_guardrails}->{len(base_times)}")
     if mode == "basic":
         fill = 0
     if mode == "minimal":
@@ -494,7 +657,7 @@ def generate_drums_notes(
             verbose=verbose,
         )
 
-    all_times = sorted(set(base_times + added_times))
+    all_times = _append_events_with_density_guardrails(base_times, added_times, beats, bpm, preset)
     if mode == "enhanced" and base_times:
         min_target = int(len(base_times) * 1.15)
         if len(all_times) < min_target:
@@ -509,7 +672,8 @@ def generate_drums_notes(
                 genre_template_strength=genre_template_strength,
                 verbose=False,
             )
-            all_times = sorted(set(all_times + extra))
+            all_times = _append_events_with_density_guardrails(all_times, extra, beats, bpm, preset)
+    _print_rhythm_diagnostics("final", all_times, beats, bpm, mode, preset_id)
 
     if status_cb:
         status_cb("Назначение линий...")
@@ -522,7 +686,7 @@ def generate_drums_notes(
     if verbose:
         print(
             f"[DrumGen] Итого: {len(notes)} (обнаружено={len(base_times)}, "
-            f"добавлено={len(all_times) - len(base_times)})"
+            f"добавлено={max(0, len(all_times) - len(base_times))})"
         )
 
     return notes if notes else None

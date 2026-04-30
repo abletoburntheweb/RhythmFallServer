@@ -10,6 +10,7 @@ import re
 import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator
 from .drum_utils import assign_lanes_to_notes
+from .generation_presets import available_preset_ids, resolve_generation_preset
 
 try:
     from .genre_detector import detect_genres
@@ -250,6 +251,7 @@ def generate_drums():
         instrument_type = metadata.get("instrument_type", "drums")
         sync_tolerance = metadata.get("sync_tolerance", 0.2)
         generation_mode = metadata.get("generation_mode", "basic")
+        preset_id = metadata.get("preset_id")
         auto_identify_track = metadata.get("auto_identify_track", False)
         progress_delay_seconds = float(metadata.get("progress_delay_seconds", 0.0))
         genres = metadata.get("genres")
@@ -301,6 +303,12 @@ def generate_drums():
             return jsonify({"error": "Invalid 'sync_tolerance': must be float 0.01-1.0"}), 400
         if generation_mode not in valid_modes:
             return jsonify({"error": f"'generation_mode' must be one of {sorted(valid_modes)}"}), 400
+        try:
+            generation_preset = resolve_generation_preset(preset_id, generation_mode)
+        except ValueError:
+            return jsonify({"error": f"'preset_id' must be one of {sorted(available_preset_ids())}"}), 400
+        preset_id = generation_preset["preset_id"]
+        generation_mode = generation_preset["mode"]
         if genres is not None and not isinstance(genres, list):
             return jsonify({"error": "'genres' must be a list of strings"}), 400
         if primary_genre is not None and not isinstance(primary_genre, str):
@@ -339,8 +347,6 @@ def generate_drums():
             if primary_genre and primary_genre.strip().lower() != "unknown"
             else None
         )
-        use_auto_identify = False
-
         track_info = None
         print("[DrumGen] Используем только аудио-модель жанров (без сетевых источников)")
         artist_guess, title_guess = _extract_artist_title_from_filename(original_filename)
@@ -357,7 +363,7 @@ def generate_drums():
         _report_status(task_id, "Определение жанров...")
         if progress_delay_seconds > 0:
             time.sleep(progress_delay_seconds)
-        print(f"[DrumGen] Генерация нот | BPM: {bpm}, Линии: {lanes}, Режим: {generation_mode}")
+        print(f"[DrumGen] Генерация нот | BPM: {bpm}, Линии: {lanes}, Режим: {generation_mode}, Пресет: {preset_id}")
         print(f"[DrumGen] Использовать стемы: {'да' if use_stems else 'нет'}")
         print(f"[DrumGen] Параметры | fill={fill} groove={groove} density={density} grid_snap_strength={grid_snap_strength} accent_strong_beats={accent_strong_beats} genre_template_strength={genre_template_strength}")
         effective_primary = normalized_primary_genre
@@ -389,6 +395,7 @@ def generate_drums():
             use_madmom_beats=True,
             use_stems=use_stems,
             generation_mode=generation_mode,
+            preset_id=preset_id,
             fill=fill,
             groove=groove,
             density=density,
@@ -434,6 +441,7 @@ def generate_drums():
             "lanes": lanes,
             "instrument_type": instrument_type,
             "mode": generation_mode,
+            "preset_id": preset_id,
             "statistics": {
                 "total_notes": len(chosen_notes),
                 "drum_notes": drum_count
@@ -443,7 +451,7 @@ def generate_drums():
 
         final_genres = provided_genres if provided_genres is not None else (track_info.get("genres") if track_info else [])
         final_primary = effective_primary or (track_info.get("primary_genre") if track_info else "")
-        genres_source = "server" if use_auto_identify else "client"
+        genres_source = "client"
 
         response_data['track_info'] = {
             'title': (track_info.get('title') if track_info else 'Unknown'),

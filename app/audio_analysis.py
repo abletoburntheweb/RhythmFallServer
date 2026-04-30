@@ -84,9 +84,34 @@ def separate_stems(song_path: str, song_folder: Path, stem_type: str = "drums", 
         print(f"[AudioAnalysis] Использую кешированный стем: {output_path.name}")
         return str(output_path)
 
+    def _is_stem_candidate(path: Path) -> bool:
+        if not path.exists() or path.suffix.lower() != ".wav":
+            return False
+        name = path.name.lower()
+        if stem_type == "drums":
+            if not ("drum" in name or "percussion" in name):
+                return False
+            if any(bad in name for bad in ["no drums", "(no drums)", "no_drums", "instrumental"]):
+                return False
+            return True
+        return (stem_type in name) and (f"no_{stem_type}" not in name) and ("(no " + stem_type + ")" not in name)
+
     if cancel_cb:
         cancel_cb()
-    candidates = [f for f in splitter_folder.glob("*.wav") if stem_type in f.name.lower()]
+    recursive_candidates = [p for p in song_folder.rglob("*") if _is_stem_candidate(p)]
+    if recursive_candidates:
+        recursive_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        preferred_cached = recursive_candidates[0]
+        if preferred_cached.resolve() != output_path.resolve():
+            print(f"[AudioAnalysis] Найден кешированный стем: {preferred_cached.name} → {output_path.name}")
+            shutil.copy2(preferred_cached, output_path)
+        else:
+            print(f"[AudioAnalysis] Использую кешированный стем: {output_path.name}")
+        return str(output_path)
+
+    if cancel_cb:
+        cancel_cb()
+    candidates = [f for f in splitter_folder.glob("*") if f.suffix.lower() == ".wav" and stem_type in f.name.lower()]
     preferred = None
     for f in candidates:
         if cancel_cb:
