@@ -2,6 +2,7 @@
 import json
 import os
 import random
+import time
 from collections import deque
 from pathlib import Path
 from typing import List, Dict, Optional, Deque
@@ -15,6 +16,8 @@ LANE_REPEAT_MIN_WEIGHT = 0.06
 LANE_SAME_AS_PREV_MULT = 0.11
 LANE_RECENT_HISTORY_LEN = 10
 LANE_HISTORY_OVERUSE_PENALTY = 0.55
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def dedupe_notes_same_lane_same_time(notes: List[Dict], eps: float = LANE_TIME_BUCKET_EPS) -> List[Dict]:
@@ -299,6 +302,33 @@ def save_drums_notes(notes_data: List[Dict], song_path: str, mode: str = "basic"
             os.fsync(f.fileno())
         temp_path.replace(notes_path)
         print(f"[DrumUtils] Ноты сохранены в: {notes_path}")
+
+        env_flag = os.environ.get("RHYTHMFALL_NOTE_TIMING_LOG", "").strip().lower()
+        if env_flag in ("1", "true", "yes", "on"):
+            times = []
+            for n in filtered_notes:
+                if isinstance(n, dict) and "time" in n:
+                    try:
+                        times.append(float(n["time"]))
+                    except (TypeError, ValueError):
+                        pass
+            t_min = min(times) if times else 0.0
+            t_max = max(times) if times else 0.0
+            log_line = (
+                f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\t"
+                f"song_path={song_path}\tmode={mode}\tlanes={lanes}\t"
+                f"count={len(filtered_notes)}\tt_min={t_min:.6f}\tt_max={t_max:.6f}\t"
+                f"notes_json={notes_path}\n"
+            )
+            log_path = PROJECT_ROOT / "temp_uploads" / "note_generation_timing.log"
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(log_path, "a", encoding="utf-8") as lf:
+                    lf.write(log_line)
+                print(f"[DrumUtils] timing log → {log_path}")
+            except OSError as e:
+                print(f"[DrumUtils] timing log failed: {e}")
+
         return True
     except Exception as e:
         print(f"[DrumUtils] Ошибка сохранения нот: {e}")
