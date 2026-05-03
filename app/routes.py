@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify
 import os
 import time
 import json
+import threading
 from pathlib import Path
 import shutil
 import re
@@ -11,6 +12,7 @@ import app.bpm_analyzer as bpm_analyzer
 from . import drum_generator
 from .drum_utils import assign_lanes_to_notes
 from .generation_presets import available_preset_ids, resolve_generation_preset
+from . import shutdown as _shutdown_mod
 
 try:
     from .genre_detector import detect_genres
@@ -615,5 +617,20 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/cancel_task", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/cancel_task", "/songs", "/health", "/shutdown"]
     })
+
+
+@bp.route("/shutdown", methods=["POST"])
+def shutdown():
+    threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
+    return jsonify({"status": "shutting_down"})
+
+
+@bp.after_request
+def _reset_idle_on_request(response):
+    try:
+        _shutdown_mod.reset_idle_timer()
+    except Exception:
+        pass
+    return response
