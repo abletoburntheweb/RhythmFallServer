@@ -27,6 +27,7 @@ os.makedirs("temp_uploads", exist_ok=True)
 os.makedirs("songs", exist_ok=True)
 
 TASK_PROGRESS = {}
+TASK_RESULTS = {}
 TASK_CANCELLED = set()
 TASK_CONTEXT = {}
 DEBUG_HTTP = os.getenv("RF_DEBUG_HTTP", "0") == "1"
@@ -69,6 +70,11 @@ def _report_status(task_id: str, status_text: str):
         lst = []
         TASK_PROGRESS[task_id] = lst
     lst.append(status_text)
+
+
+def _store_task_result(task_id: str, data: dict):
+    if task_id:
+        TASK_RESULTS[task_id] = data
 
 def _register_task_context(task_id: str, temp_path: str):
     if not task_id or not temp_path:
@@ -133,6 +139,18 @@ def task_status():
         return jsonify({"error": "task_id required"}), 400
     statuses = TASK_PROGRESS.get(task_id, [])
     return jsonify({"task_id": task_id, "statuses": statuses, "status": "ok"})
+
+
+@bp.route("/task_result", methods=["GET"])
+def task_result():
+    task_id = request.args.get("task_id", "")
+    if not task_id:
+        return jsonify({"error": "task_id required"}), 400
+    if task_id in TASK_RESULTS:
+        return jsonify(TASK_RESULTS[task_id])
+    if task_id in TASK_PROGRESS or task_id in TASK_CONTEXT:
+        return jsonify({"status": "processing", "task_id": task_id}), 202
+    return jsonify({"error": "unknown task", "task_id": task_id}), 404
 
 @bp.route("/cancel_task", methods=["POST", "GET"])
 def cancel_task():
@@ -464,19 +482,28 @@ def generate_drums():
         print(f"   - Жанры: {', '.join(final_genres) if final_genres else 'не определены'}")
         print(f"   - Источник жанров: {genres_source} | primary: {final_primary or 'не задан'}")
         _report_status(task_id, "Формирование ответа...")
+        _store_task_result(task_id, response_data)
         return jsonify(response_data)
 
     except RuntimeError as e:
         if str(e) == "__CANCELLED__":
             print(f"[DrumGen] Задача отменена: {task_id}")
             _report_status(task_id, "Отменено пользователем")
+            cancelled_payload = {
+                "status": "cancelled_by_user",
+                "message": "Отменено пользователем",
+                "task_id": task_id
+            }
+            _store_task_result(task_id, cancelled_payload)
             _cleanup_task(task_id)
-            return jsonify({"status": "cancelled_by_user", "message": "Отменено пользователем", "task_id": task_id}), 200
+            return jsonify(cancelled_payload), 200
         raise
     except Exception as e:
         print(f"[DrumGen] Исключение: {e}")
         import traceback
         traceback.print_exc()
+        error_payload = {"status": "error", "error": str(e)}
+        _store_task_result(task_id, error_payload)
         return jsonify({"error": str(e)}), 500
     finally:
         if _is_cancelled(task_id):
@@ -615,5 +642,5 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/cancel_task", "/songs", "/health"]
+        "endpoints": ["/", "/analyze_bpm", "/generate_drums", "/task_status", "/task_result", "/cancel_task", "/songs", "/health"]
     })
