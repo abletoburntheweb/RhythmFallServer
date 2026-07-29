@@ -1,0 +1,36 @@
+{
+  "note_count_ranges": {
+    "pop":           {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+    "hyperpop":      {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+    "k-pop":         {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+    "j-pop":         {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.30},
+    "electronic":    {"min": 5, "max": 8,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+    "house":         {"min": 5, "max": 8,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+    "techno":        {"min": 5, "max": 8,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+    "trance":        {"min": 5, "max": 8,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25},
+    "drum and bass": {"min": 6, "max": 10, "per_measure": 3, "per_measure_break": 5, "cap_ratio": 0.28},
+    "rap":           {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.22},
+    "r&b":           {"min": 3, "max": 6,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.22},
+    "rock":          {"min": 3, "max": 7,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+    "metal":         {"min": 3, "max": 7,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+    "hardcore":      {"min": 3, "max": 7,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.20},
+    "default":       {"min": 4, "max": 7,  "per_measure": 3, "per_measure_break": 4, "cap_ratio": 0.25}
+  },
+
+  "rhythmic_grids": {
+    "electronic":    [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75],
+    "house":         [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75],
+    "techno":        [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75],
+    "trance":        [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75],
+    "drum and bass": [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.0, 1.25, 1.75, 2.0, 2.25, 2.75, 3.0, 3.25, 3.75],
+    "funk":          [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.0, 1.25, 1.75, 2.0, 2.25, 2.75, 3.0, 3.25, 3.75],
+    "rap":           [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.75, 1.25, 2.75, 3.25],
+    "r&b":           [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.75, 1.25, 2.75, 3.25],
+    "default":       [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75],
+
+    "pop":      {"normal": [0.0, 2.0, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75], "break": [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]},
+    "hyperpop": {"normal": [0.0, 2.0, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75], "break": [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]},
+    "k-pop":    {"normal": [0.0, 2.0, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75], "break": [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]},
+    "j-pop":    {"normal": [0.0, 2.0, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75], "break": [0.0, 2.0, 0.5, 1.5, 2.5, 3.5, 0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75]}
+  }
+}

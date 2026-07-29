@@ -31,9 +31,20 @@ build/
 Thumbs.db
 desktop.ini
 
-temp_uploads/
+temp_uploads/*
+!temp_uploads/.gdignore
 data/
 songs/
+reports/
+generation_quality_reports/
+
+# Local / backup copies of app (do not commit)
+app_old/
+app — копия/
+
+# Regression / QA fixtures (not needed at runtime)
+baseline/
+reference_tracks/
 
 .env
 .env.*
@@ -46,4 +57,3 @@ download_checks.json
 models/**
 !models/
 !models/.gitkeep
-
