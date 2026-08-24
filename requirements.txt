@@ -1,10 +1,20 @@
+# Windows-native server: BPM (tempocnn) + EffNet genres + stems.
+# Install via worker/install_windows_server.ps1 (or: pip install -r requirements.txt)
+
 Flask==3.1.2
 librosa==0.11.0
-numpy>=1.23
-scipy>=1.10
+numpy>=1.23.5,<2.0
+scipy>=1.10,<1.14
 soundfile>=0.12
 demucs==4.0.1
-audio-separator==0.41.1
-madmom==0.16.1
 onnxruntime==1.20.1
-essentia
+onnx>=1.16,<1.19
+onnx2torch>=1.5
+tempocnn>=0.0.8
+pretty_midi>=0.2.10
+# ADTOF drum transcription (optional fallback: RFALL_DRUM_BACKEND=heuristic)
+# pip install git+https://github.com/xavriley/ADTOF-pytorch.git  (via install_windows_server.ps1)
+# Basic Pitch bass transcription (optional fallback: RFALL_BASS_BACKEND=heuristic)
+# pip install basic-pitch --no-deps
+# audio-separator installed separately (--no-deps) to avoid numpy>=2 vs tensorflow conflict
+# madmom optional — install script tries after core stack

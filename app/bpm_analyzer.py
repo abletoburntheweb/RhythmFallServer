@@ -8,11 +8,18 @@ from typing import Callable, Optional
 SONGS_CACHE_FILE = "data/songs_cache.json"
 
 try:
-    import essentia
-    import essentia.standard as es
-    TEMPOCNN_AVAILABLE = True
+    if os.environ.get("RFALL_LEGACY_ESSENTIA", "0").strip().lower() in ("1", "true", "yes", "on"):
+        import essentia
+        import essentia.standard as es
+        TEMPOCNN_AVAILABLE = True
+    else:
+        TEMPOCNN_AVAILABLE = False
+        es = None  # type: ignore
 except Exception:
     TEMPOCNN_AVAILABLE = False
+    es = None  # type: ignore
+
+_TEMPOCNN_PIP_CLASSIFIER = None
 
 
 def load_songs_cache():
@@ -92,8 +99,86 @@ def _tempcnn_model_path() -> str | None:
     return None
 
 
-def _calculate_bpm_tempcnn(file_path: str, cancel_cb: Optional[Callable[[], None]] = None) -> int | None:
+def _tempocnn_runtime_available() -> bool:
     if not TEMPOCNN_AVAILABLE:
+        return False
+    return hasattr(es, "TempoCNN") or hasattr(es, "TensorflowPredictTempoCNN")
+
+
+def _tempocnn_pip_available() -> bool:
+    try:
+        import tempocnn  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _tempocnn_pip_model_name() -> str:
+    name = os.environ.get("RF_TEMPOCNN_PIP_MODEL", "deeptemp").strip()
+    return name or "deeptemp"
+
+
+def _get_tempocnn_pip_classifier():
+    global _TEMPOCNN_PIP_CLASSIFIER
+    if _TEMPOCNN_PIP_CLASSIFIER is None:
+        from tempocnn.classifier import TempoClassifier
+        _TEMPOCNN_PIP_CLASSIFIER = TempoClassifier(_tempocnn_pip_model_name())
+    return _TEMPOCNN_PIP_CLASSIFIER
+
+
+def _predictions_to_global_bpm(predictions) -> float | None:
+    bpms_grid = np.linspace(30.0, 286.0, 256)
+    votes: list[int] = []
+    for row in predictions:
+        p = np.asarray(row, dtype=np.float64).flatten()
+        if p.size != 256:
+            continue
+        votes.append(int(round(float(bpms_grid[int(np.argmax(p))]))))
+    if not votes:
+        return None
+    from collections import Counter
+    return float(Counter(votes).most_common(1)[0][0])
+
+
+def _normalize_tempo_bpm(bpm: float) -> int | None:
+    if bpm <= 0 or np.isnan(bpm):
+        return None
+    while bpm < 90:
+        bpm *= 2.0
+    while bpm > 200:
+        bpm /= 2.0
+    return int(round(max(90, min(200, bpm))))
+
+
+def _calculate_bpm_tempocnn_pip(
+    file_path: str, cancel_cb: Optional[Callable[[], None]] = None
+) -> int | None:
+    if not _tempocnn_pip_available():
+        return None
+    try:
+        from tempocnn.feature import read_features
+
+        if cancel_cb:
+            cancel_cb()
+        classifier = _get_tempocnn_pip_classifier()
+        features = read_features(file_path)
+        if cancel_cb:
+            cancel_cb()
+        preds = classifier.estimate(features)
+        voted = _predictions_to_global_bpm(preds)
+        if voted is None:
+            return None
+        result = _normalize_tempo_bpm(voted)
+        if result is not None:
+            print(f"[TempoCNN/pip] BPM: {result} ({_tempocnn_pip_model_name()})")
+        return result
+    except Exception as e:
+        print(f"[TempoCNN/pip] Ошибка инференса: {e}")
+        return None
+
+
+def _calculate_bpm_tempcnn(file_path: str, cancel_cb: Optional[Callable[[], None]] = None) -> int | None:
+    if not _tempocnn_runtime_available():
         return None
     graph = _tempcnn_model_path()
     if not graph:
@@ -105,25 +190,25 @@ def _calculate_bpm_tempcnn(file_path: str, cancel_cb: Optional[Callable[[], None
         audio = loader()
         if cancel_cb:
             cancel_cb()
-        model = es.TempoCNN(graphFilename=str(graph))
-        if cancel_cb:
-            cancel_cb()
-        g, lt, lp = model(audio)
-        if isinstance(g, (list, tuple, np.ndarray)):
-            g = float(np.array(g).flatten()[0])
-        bpm = float(g)
-        if bpm <= 0 or np.isnan(bpm):
-            return None
-        if cancel_cb:
-            cancel_cb()
-        if bpm < 90:
-            while bpm < 90:
-                bpm *= 2.0
-        elif bpm > 200:
-            while bpm > 200:
-                bpm /= 2.0
-        bpm = int(round(max(90, min(200, bpm))))
-        return bpm
+        if hasattr(es, "TempoCNN"):
+            model = es.TempoCNN(graphFilename=str(graph))
+            if cancel_cb:
+                cancel_cb()
+            g, _lt, _lp = model(audio)
+            bpm = float(np.array(g).flatten()[0])
+        else:
+            predictor = es.TensorflowPredictTempoCNN(graphFilename=str(graph))
+            if cancel_cb:
+                cancel_cb()
+            preds = predictor(audio)
+            voted = _predictions_to_global_bpm(preds)
+            if voted is None:
+                return None
+            bpm = voted
+        result = _normalize_tempo_bpm(bpm)
+        if result is not None:
+            print(f"[TempoCNN] BPM: {result}")
+        return result
     except Exception as e:
         print(f"[TempoCNN] Ошибка инференса: {e}")
         return None
@@ -154,10 +239,18 @@ def calculate_bpm(file_path, save_cache=True, cancel_cb: Optional[Callable[[], N
     try:
         if cancel_cb:
             cancel_cb()
-        bpm_tc = _calculate_bpm_tempcnn(file_path, cancel_cb=cancel_cb)
+        bpm_tc = _calculate_bpm_tempocnn_pip(file_path, cancel_cb=cancel_cb)
     except Exception as e:
-        print(f"[TempoCNN] Ошибка: {e}")
+        print(f"[TempoCNN/pip] Ошибка: {e}")
         bpm_tc = None
+    if bpm_tc is None:
+        try:
+            if cancel_cb:
+                cancel_cb()
+            bpm_tc = _calculate_bpm_tempcnn(file_path, cancel_cb=cancel_cb)
+        except Exception as e:
+            print(f"[TempoCNN] Ошибка: {e}")
+            bpm_tc = None
     if bpm_tc is not None:
         if save_cache:
             save_bpm_to_cache(file_path, bpm_tc)

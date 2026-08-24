@@ -5,6 +5,12 @@ class NoteType:
     DRUM = "DrumNote"
     DEFAULT = "DefaultNote"
     HOLD = "HoldNote"
+    BASS_TAP = "BassTapNote"
+    BASS_HOLD = "BassHoldNote"
+    BASS_SLIDE = "BassSlideNote"
+    # Legacy aliases (parser only)
+    BASS_SUSTAIN = "BassHoldNote"
+    BASS_OCTAVE = "BassTapNote"
 
 
 def create_note(note_type, lane, time, length=None, hold_time=None):

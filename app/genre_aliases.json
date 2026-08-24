@@ -11,12 +11,14 @@
   "electronic": [
     "electronica", "electro", "glitch", "chiptune", "bitpop",
     "edm", "electronic dance music", "dance", "indietronica",
-    "electronic---electro", "electronic---idm"
+    "breakbeat", "breakcore", "breaks", "darkwave", "dungeon synth", "electroclash",
+    "electronic---electro", "electronic---breakbeat", "electronic---idm"
   ],
-  "techno": ["detroit techno", "minimal techno", "acid techno"],
+  "techno": ["detroit techno", "minimal techno", "acid techno", "deep techno", "dub techno", "techno---detroit techno", "techno---minimal techno"],
   "house": [
     "deep house", "tech house", "progressive house", "chicago house",
-    "tropical house", "future house", "microhouse"
+    "tropical house", "future house", "microhouse", "acid house", "electro house",
+    "house---deep house", "house---tech house", "house---progressive house"
   ],
   "trance": ["progressive trance", "uplifting trance"],
   "dubstep": ["brostep", "melodic dubstep", "riddim"],
@@ -38,7 +40,9 @@
     "heavy metal", "thrash metal", "death metal", "black metal",
     "doom metal", "power metal", "symphonic metal", "nu metal",
     "metalcore", "deathcore", "groove metal", "sludge metal",
-    "stoner metal", "folk metal", "christian metal", "funk metal", "nintendocore"
+    "stoner metal", "folk metal", "christian metal", "funk metal", "nintendocore",
+    "atmospheric black metal", "depressive black metal", "deathrock", "metal---black metal",
+    "metal---death metal", "metal---doom metal", "metal---thrash metal"
   ],
   "electropop": [
     "electro pop", "electronic---synth-pop", "electronic---dance-pop", "synthpop", "synth-pop"
@@ -57,7 +61,10 @@
   ],
   "ambient": ["dark ambient", "drone", "ritual ambient"],
   "lofi": ["lo-fi", "low fidelity"],
-  "chillwave": ["glo-fi", "glofi", "hypnagogic pop", "chill wave"],
+  "chillwave": ["glo-fi", "glofi", "hypnagogic pop", "chill wave", "chillout", "chill-out"],
+  "downtempo": [
+    "downtempo", "trip hop", "trip-hop", "electronic---downtempo", "electronic---idm", "idm"
+  ],
   "vaporwave": ["vapourwave", "mallsoft"],
   "witch house": ["witchhouse"],
   "art pop": ["avant-pop", "experimental pop", "dream pop"],
@@ -70,13 +77,22 @@
     "baroque", "renaissance", "romantic era", "modern classical",
     "contemporary classical", "neoclassical", "orchestral", "symphonic"
   ],
-  "jazz": ["bebop", "free jazz", "fusion", "smooth jazz", "acid jazz", "gypsy jazz"],
+  "jazz": [
+    "bebop", "free jazz", "fusion", "smooth jazz", "acid jazz", "gypsy jazz",
+    "cool jazz", "big band", "contemporary jazz", "dixieland", "easy listening",
+    "jazz---bebop", "jazz---cool jazz", "jazz---free jazz", "jazz---fusion"
+  ],
   "disco": ["boogie", "italo disco", "nu disco"],
   "post-rock": ["post-rock", "instrumental rock", "ambient rock", "space rock"],
   "synthwave": ["retrowave", "outrun"],
   "industrial": ["industrial rock", "industrial metal", "industrial techno", "industrial electronic", "ebm", "power electronics"],
   "reggae": ["reggae", "dub", "roots reggae", "dancehall", "ska"],
-  "blues": ["delta blues", "chicago blues", "electric blues", "acoustic blues"],
+  "blues": [
+    "delta blues", "chicago blues", "electric blues", "acoustic blues",
+    "boogie woogie", "country blues", "harmonica blues", "jump blues",
+    "louisiana blues", "piano blues", "texas blues", "modern electric blues",
+    "blues---chicago blues", "blues---delta blues", "blues---electric blues"
+  ],
   "country": ["country", "outlaw country", "bluegrass", "americana"],
   "folk": ["folk", "contemporary folk", "singer-songwriter", "celtic folk"]
 }

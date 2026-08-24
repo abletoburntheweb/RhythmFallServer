@@ -1,74 +1,93 @@
 # RhythmFallServer
 
-Local Flask server for RhythmFall that analyzes audio and returns automatically generated notes. Designed to run on your machine alongside the Godot client.
+Local Flask server for [RhythmFall](https://github.com/abletoburntheweb/RhythmFall): analyzes audio and returns automatically generated charts. Runs on your machine next to the Godot client (or inside the Windows game install as a bundled worker).
 
 Languages: English | [Русский](./README.ru.md)
 
-Note: This repository contains the server/backend for RhythmFall. For the Godot client, use the client repository: https://github.com/abletoburntheweb/RhythmFall
-
-Models: Not included in the repository. Download archives from Releases (https://github.com/abletoburntheweb/RhythmFallServer/releases) and unpack into rhythmfall-server/models.
+**Client:** https://github.com/abletoburntheweb/RhythmFall  
+**Models:** not committed. Download from [Releases](https://github.com/abletoburntheweb/RhythmFallServer/releases) or run the client’s `worker\download_effnet_models.ps1`, then place files under `models/` (e.g. EffNet / Discogs paths expected by the app).
 
 ## What It Is
-- Lightweight local HTTP server (Flask) handling audio analysis and chart generation.
-- Provides endpoints for BPM detection and drum‑focused note generation.
-- Works entirely on localhost; no audio is uploaded to external services.
+
+- Lightweight local HTTP API (Flask) for BPM, drum charts, bass charts (beta), genre hints, and Rhythm DNA sidecars
+- Writes human-readable **`.rf`** charts (RFC v1) and optional **`.rfd`** DNA passports for drums
+- Fully local — audio is not uploaded to external services
+- On Windows, the RhythmFall client can auto-start this server via `RhythmFallServer.exe` + a prepared `.venv`
 
 ## How It Works
-- Receives an audio file via HTTP.
-- Estimates tempo, optionally splits stems, detects drum events, applies genre‑aware patterns.
-- Returns a JSON chart and simple statistics back to the client.
 
-## Quick Start
-1) Create a virtual environment
+1. Client uploads (or points at) an audio file and metadata: instrument, **goal** (`original` / `arcade`), difficulty tier for Arcade, lanes, optional sliders.
+2. Server estimates tempo (TempoCNN / fallbacks), optionally separates stems (Demucs / audio-separator), detects hits (**ADTOF** by default, heuristic fallback).
+3. Goal policies + genre profiles shape density and lane routing; Arcade uses an ergonomic lane router.
+4. Response includes chart payload / paths; drum generation also bakes `.rfd` next to the `.rf`.
+
+**Chart stems**
+
+| Goal | Files (examples) |
+| --- | --- |
+| **Original** | `drums_original.rf`, `bass_original.rf` (single documentary bake; legacy `*_original_standard` still accepted) |
+| **Arcade** | `drums_arcade_relaxed.rf` / `_standard` / `_dense` (Easy / Medium / Hard), same pattern for bass |
+
+## Quick Start (Windows — recommended)
+
+Use the scripts from the **client** repo (`worker/`), with this server checkout as `RhythmFallServer/` or `RhythmFallServer-main/` next to `worker/`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File worker\install_windows_server.ps1 -Gpu auto
+powershell -ExecutionPolicy Bypass -File worker\download_effnet_models.ps1
+powershell -ExecutionPolicy Bypass -File worker\build_server_launcher.ps1
+```
+
+- `-Gpu auto|nvidia|amd|cpu` — chooses CUDA / DirectML / CPU **when building the venv** (not asked by the game installer).
+- Requires **Python 3.9–3.11** and **ffmpeg** on PATH for stems.
+- Creates `RhythmFallServer\.venv` and `worker\windows_python.path`.
+- Run `RhythmFallServer.exe` or `python run.py` — http://127.0.0.1:5000 should report the server is up.
+
+Manual venv (any OS):
+
 ```bash
 python -m venv .venv
-```
-2) Activate it
-- Windows (cmd):
-  ```cmd
-  .venv\Scripts\activate
-  ```
-- Windows (PowerShell):
-  ```powershell
-  .venv\Scripts\Activate.ps1
-  ```
-3) Install dependencies
-```bash
+# activate, then:
 pip install -r requirements.txt
-```
-4) Run the server
-```bash
 python run.py
 ```
-Open http://127.0.0.1:5000 — you should see: {"message": "RhythmFallServer is running"}
 
 ## Endpoints (summary)
-- POST /analyze_bpm — accepts an audio file; returns { "bpm": number }
-- POST /generate_drums — accepts an audio file and metadata; returns notes JSON
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/` / `/health` | Liveness + endpoint list |
+| POST | `/analyze_bpm` | Tempo from audio |
+| POST | `/generate_drums` | Drum `.rf` (+ `.rfd`) |
+| POST | `/generate_bass` | Bass `.rf` (beta; no `.rfd`) |
+| GET | `/task_status`, `/task_result` | Async job polling |
+| POST | `/cancel_task` | Cancel a job |
+| GET/POST | `/rhythm_dna`, `/rhythm_dna_sidecar` | DNA report / sidecar |
+| GET/POST | `/storage_usage`, `/storage_reclaim` | Temp upload cleanup |
+
+Exact request fields are driven by the RhythmFall client (`generation_api_client.gd`).
 
 ## Notes
-- Runs on localhost:5000 by default; stop with Ctrl+C.
-- No cloud upload — processing stays on your device.
+
+- Default bind: `localhost:5000`. Stop with Ctrl+C (or close the launcher console).
+- No cloud upload — processing stays on the device.
+- First stem separation is slower; later runs reuse `temp_uploads/` cache.
+- GPU packages are optional; CPU works with longer stem times.
+- WSL is deprecated for the Windows release path — use the native venv.
 
 ## Dependencies
-- Core: Python 3.10+, Flask, librosa (see requirements.txt).
-- Optional (improves quality/timing):
-  - demucs — stems separation for cleaner drum detection (requires PyTorch; ffmpeg recommended).
-  - madmom — beat tracking for more stable alignment.
-  - Essentia (TempoCNN) — robust tempo estimation and audio feature extraction.
-  - onnxruntime — run ONNX heads for genre classification.
-  - These extras are already listed in requirements.txt; installation may require additional system packages (e.g., PyTorch for demucs, ffmpeg).
 
-## Genre Classification Models (optional)
-- Discogs400 head and labels (+ MAEST embedding) are supported if present.
-- Expected files inside a model directory (default: models/genre_discogs400-discogs-maest-10s-pw-1):
-  - <model>.pb or <model>.onnx (classification head),
-  - <model>.json (labels/metadata),
-  - MAEST embedding graph .pb (can be placed in model dir or sibling “maest” dir).
-- Environment variables:
-  - RF_DISCOGS400_DIR — path to the model directory.
-  - RF_MAEST_EMBED_PB — override path to the MAEST embedding graph.
+- Core: Python **3.9–3.11**, Flask, librosa, NumPy 1.x (see `requirements.txt`)
+- Windows stack extras (via install script): TempoCNN, EffNet/ONNX, Demucs / audio-separator, optional madmom, **ADTOF**
+- System: **ffmpeg** for stem workflows
+
+## Genre models (optional)
+
+- Discogs / EffNet-style heads if present under `models/`
+- Env overrides may include `RF_DISCOGS400_DIR`, `RF_MAEST_EMBED_PB` (see app code / docs)
+- Drum backend: `RFALL_DRUM_BACKEND=adtof_fast` (default after install) or `heuristic`
 
 ## Platform Notes
-- Primarily tested on Ubuntu; on Windows some optional packages may require extra setup.
-- The server works without optional extras; they are detected at runtime and used when available.
+
+- **Windows** is the primary release target for the bundled client worker.
+- Shipping inside the game: copy `.venv`, `app/`, `models/`, `run.py`, and `RhythmFallServer.exe` next to `RhythmFall.exe` — see client `RFALL/BUILD.txt`.

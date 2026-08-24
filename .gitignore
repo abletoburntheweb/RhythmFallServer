@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -6,17 +7,20 @@ __pycache__/
 *.log
 *.sqlite3
 
+# Virtual environments
 venv/
 .venv/
 env/
 ENV/
 rhythmfall_server/
 
+# IDE
 .idea/
 .vscode/
 *.sublime-project
 *.sublime-workspace
 
+# Build artifacts
 *.egg
 *.egg-info/
 dist/
@@ -27,23 +31,40 @@ build/
 .pytest_cache/
 .dmypy.json
 
+# OS files
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Project-specific directories
+baseline/
+reference_tracks/
+reports/
+scripts/
 
 temp_uploads/
 data/
 songs/
 
+# Environment and secrets
 .env
 .env.*
 *.secret
 private.key
 .rfenv/
+
+# Model files
 mdx_model_data.json
 vr_model_data.json
 download_checks.json
+
+# Models directory (except .gitkeep)
 models/**
 !models/
 !models/.gitkeep
 
+# Additional
+*.tmp
+*.bak
+*.swp
+*.swo
